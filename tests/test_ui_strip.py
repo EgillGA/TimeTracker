@@ -10,7 +10,12 @@ import unittest
 from datetime import datetime, timedelta
 
 from timetracker.config import Config, default_jql
-from timetracker.ui_strip import StripCallbacks, TimerStrip, strip_position
+from timetracker.ui_strip import (
+    StripCallbacks,
+    TimerStrip,
+    shorten,
+    strip_position,
+)
 
 ISSUE = {"key": "AP-7500", "id": 7500, "summary": "CRA252159 LOPA change"}
 NINE = datetime(2026, 8, 17, 9, 0, 0)
@@ -63,6 +68,38 @@ class WhereTheStripParks(unittest.TestCase):
         self.assertEqual(x, 0 - 260 - 12)
 
 
+class FittingTheTitleOnTheStrip(unittest.TestCase):
+    """Real summaries run to sixty characters. The strip has room for about
+    half that, and tkinter labels do not ellipsize on their own."""
+
+    def test_a_short_title_is_left_alone(self):
+        self.assertEqual(shorten("PSU Drawing", limit=26), "PSU Drawing")
+
+    def test_a_long_title_is_cut_with_an_ellipsis(self):
+        result = shorten("CRA252159 - 767 - ANG - ISN/O LOPA change", limit=26)
+
+        self.assertEqual(len(result), 26)
+        self.assertTrue(result.endswith("…"))
+        self.assertTrue(result.startswith("CRA252159"))
+
+    def test_a_title_exactly_at_the_limit_is_not_cut(self):
+        text = "a" * 26
+        self.assertEqual(shorten(text, limit=26), text)
+
+    def test_no_ragged_space_before_the_ellipsis(self):
+        self.assertEqual(shorten("hello world again", limit=12), "hello world…")
+
+    def test_runs_of_whitespace_are_collapsed(self):
+        self.assertEqual(shorten("EEL  change\n A320", limit=26),
+                         "EEL change A320")
+
+    def test_an_empty_title_is_empty(self):
+        self.assertEqual(shorten("", limit=26), "")
+
+    def test_a_missing_title_does_not_crash(self):
+        self.assertEqual(shorten(None, limit=26), "")
+
+
 def has_display():
     try:
         tk.Tk().destroy()
@@ -101,6 +138,25 @@ class TheStripItself(unittest.TestCase):
     def test_it_builds_and_shows_the_issue(self):
         strip = self.build()
         self.assertIn("AP-7500", strip.key_label.cget("text"))
+
+    def test_the_title_is_on_the_strip(self):
+        # The key alone does not say what you are working on.
+        strip = self.build()
+        self.assertIn("CRA252159", strip.summary_label.cget("text"))
+
+    def test_a_long_title_is_trimmed_to_fit(self):
+        long_issue = dict(ISSUE, summary="CRA252159 - 767 - ANG - "
+                                         "ISN/O LOPA change for Icelandair")
+        strip = TimerStrip(self.root, long_issue, config(),
+                           StripCallbacks(), now=NINE)
+        self.root.update()
+
+        self.assertTrue(strip.summary_label.cget("text").endswith("…"))
+
+    def test_the_check_in_names_the_title_too(self):
+        strip = self.build()
+        strip.tick(NINE + timedelta(minutes=61))
+        self.assertIn("CRA252159", strip.checkin_question.cget("text"))
 
     def test_the_elapsed_time_reads_as_a_clock(self):
         strip = self.build()

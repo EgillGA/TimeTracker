@@ -61,9 +61,11 @@ METRICS = {
     "window_padding": SPACE["lg"],
     "day_window": (720, 700),
     "week_window": (760, 520),
-    "strip_resting": (260, 36),
-    "strip_hover": (300, 44),
-    "strip_checkin": (320, 96),
+    # Wide enough for the issue key, a trimmed title and the clock. The strip
+    # earns its width: the key alone does not say what you are working on.
+    "strip_resting": (400, 36),
+    "strip_hover": (440, 44),
+    "strip_checkin": (400, 104),
     "strip_margin": 12,
     "hours_field_width": 7,
 }

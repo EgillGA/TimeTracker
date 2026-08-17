@@ -92,7 +92,13 @@ class DayWindowSmoke(unittest.TestCase):
             self.fail("could not give the hours field focus")
 
         field.insert(0, text)
-        field.event_generate("<KeyRelease>", keysym=text[-1])
+        self.assertEqual(field.get(), text,
+                         "the harness failed to put the text in the field")
+
+        # An arrow key rather than the typed character: the handler does not
+        # care which key it was, and a character keysym can be interpreted by
+        # Tk as real input, which intermittently ate the last letter.
+        field.event_generate("<KeyRelease>", keysym="Right")
         self.root.update()
         return field
 
@@ -211,7 +217,7 @@ class DayWindowSmoke(unittest.TestCase):
 
         field = window._fields["AP-7500"]
         field.delete(0, "end")
-        field.event_generate("<KeyRelease>", keysym="BackSpace")
+        field.event_generate("<KeyRelease>", keysym="Right")
         self.root.update()
 
         self.assertEqual(dayview.total_seconds(data.record), 0)

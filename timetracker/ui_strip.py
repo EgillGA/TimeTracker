@@ -22,6 +22,18 @@ from timetracker.theme import Theme
 
 TICK_MILLISECONDS = 1000
 
+# Characters of the issue title the strip has room for. Real summaries run to
+# sixty or more, and tkinter labels do not ellipsize on their own.
+SUMMARY_LIMIT = 26
+
+
+def shorten(text, limit=SUMMARY_LIMIT):
+    """Trim an issue title to fit the strip, ending in an ellipsis."""
+    collapsed = " ".join(str(text or "").split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[:limit - 1].rstrip() + "…"
+
 
 @dataclass
 class StripCallbacks:
@@ -120,6 +132,13 @@ class TimerStrip:
                                   fg=self.theme["text"],
                                   font=self.theme.font("issue_key"))
         self.key_label.pack(side="left", padx=(self.theme.space["sm"], 0))
+
+        self.summary_label = tk.Label(
+            self.body, text=shorten(self.state.get("summary")),
+            bg=self.theme["surface"], fg=self.theme["text_muted"],
+            font=self.theme.font("small"), anchor="w",
+        )
+        self.summary_label.pack(side="left", padx=(self.theme.space["sm"], 0))
 
         self.time_label = tk.Label(self.body, text="0:00:00",
                                    bg=self.theme["surface"],
@@ -249,7 +268,8 @@ class TimerStrip:
         self.checkin_visible = True
         elapsed = format_hhmmss(timer.elapsed_seconds(self.state, now))
         self.checkin_question.configure(
-            text=f"Still on {self.state['issue_key']}?  running {elapsed}"
+            text=f"Still on {self.state['issue_key']}?  running {elapsed}\n"
+                 f"{shorten(self.state.get('summary'), limit=40)}"
         )
 
         width, height = self.theme.metrics["strip_checkin"]
