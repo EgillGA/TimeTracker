@@ -108,7 +108,24 @@ def load_credentials(root=None):
     if not path.exists():
         raise MissingCredentials(_setup_message(path, "the file does not exist yet"))
 
-    data = _read_toml(path)
+    try:
+        with open(path, "rb") as handle:
+            data = tomllib.load(handle)
+    except tomllib.TOMLDecodeError:
+        # Almost always a token pasted without quotes. Say so — reporting this
+        # as "empty" sends the user looking for the wrong problem, and the
+        # error text from tomllib may echo the token itself.
+        raise MissingCredentials(
+            f"{path} has a syntax error.\n\n"
+            f"Both values must be wrapped in quotes:\n\n"
+            f'  jira_api_token  = "paste-the-token-here"\n'
+            f'  tempo_api_token = "paste-the-token-here"\n\n'
+            f"A token pasted without quotes is the usual cause."
+        ) from None
+    except OSError:
+        raise MissingCredentials(
+            _setup_message(path, "the file could not be read")
+        ) from None
     jira_token = str(data.get("jira_api_token", "")).strip()
     tempo_token = str(data.get("tempo_api_token", "")).strip()
 

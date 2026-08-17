@@ -134,6 +134,24 @@ class LoadingCredentials(ConfigTestCase):
                    'jira_api_token = " abc\\n"\ntempo_api_token = "xyz "\n')
         self.assertEqual(load_credentials(self.root), ("abc", "xyz"))
 
+    def test_unquoted_values_are_reported_as_a_syntax_problem(self):
+        # TOML needs quotes. Pasting a raw token is the obvious mistake, and
+        # reporting it as "empty" sends the user hunting the wrong problem.
+        self.write("credentials.toml",
+                   "jira_api_token  = ATATT3xRAWTOKEN\ntempo_api_token = TPvRAW\n")
+        with self.assertRaises(MissingCredentials) as caught:
+            load_credentials(self.root)
+
+        message = str(caught.exception)
+        self.assertIn("quotes", message)
+        self.assertNotIn("is empty", message)
+
+    def test_a_syntax_error_message_does_not_leak_the_token(self):
+        self.write("credentials.toml", "jira_api_token = ATATT3xSECRETVALUE\n")
+        with self.assertRaises(MissingCredentials) as caught:
+            load_credentials(self.root)
+        self.assertNotIn("SECRETVALUE", str(caught.exception))
+
     def test_the_exception_never_contains_a_token_value(self):
         self.write("credentials.toml",
                    'jira_api_token = "SECRET-VALUE"\ntempo_api_token = ""\n')
