@@ -19,6 +19,7 @@ DEFAULTS = {
     "hours_per_day": 8.0,
     "prompt_time": "15:30",
     "week_view_day": "friday",
+    "day_starts_at": "08:00",
     "checkin_minutes": 60,
     "heartbeat_seconds": 30,
     "theme": "dark",
@@ -37,6 +38,7 @@ class Config:
     hours_per_day: float
     prompt_time: str
     week_view_day: str
+    day_starts_at: str
     checkin_minutes: int
     heartbeat_seconds: int
     theme: str
@@ -90,6 +92,7 @@ def load_config(root=None):
         hours_per_day=float(schedule.get("hours_per_day", DEFAULTS["hours_per_day"])),
         prompt_time=schedule.get("prompt_time", DEFAULTS["prompt_time"]),
         week_view_day=schedule.get("week_view_day", DEFAULTS["week_view_day"]),
+        day_starts_at=schedule.get("day_starts_at", DEFAULTS["day_starts_at"]),
         checkin_minutes=int(timer.get("checkin_minutes", DEFAULTS["checkin_minutes"])),
         heartbeat_seconds=int(
             timer.get("heartbeat_seconds", DEFAULTS["heartbeat_seconds"])

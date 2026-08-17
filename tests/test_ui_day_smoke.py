@@ -63,6 +63,15 @@ class DayWindowSmoke(unittest.TestCase):
         self.started = []
         self.addCleanup(self._teardown)
 
+    def add_then_type(self, window, issue_key, text):
+        """The real flow: press + to bring an issue up, then type its hours."""
+        rows = {r.issue_key: r for r in
+                dayview.project_rows(window.data.record, window.data.assigned,
+                                     window.data.internal)}
+        window._add_to_today(rows[issue_key])
+        self.root.update()
+        return self.type_into(window, issue_key, text)
+
     def type_into(self, window, issue_key, text):
         """Type into an hours field the way a person would."""
         field = window._fields[issue_key]
@@ -142,7 +151,7 @@ class DayWindowSmoke(unittest.TestCase):
                        assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
-        self.type_into(window, "AP-7500", "1,5")
+        self.add_then_type(window, "AP-7500","1,5")
 
         self.assertEqual(dayview.total_seconds(data.record), 90 * 60)
         self.assertTrue(self.saved, "the change should have been persisted")
@@ -153,7 +162,7 @@ class DayWindowSmoke(unittest.TestCase):
                        assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
-        field = self.type_into(window, "AP-7500", "1,5")
+        field = self.add_then_type(window, "AP-7500", "1,5")
         self.assertEqual(self.root.focus_get(), field)
         self.assertEqual(field.get(), "1,5")
 
@@ -162,7 +171,7 @@ class DayWindowSmoke(unittest.TestCase):
                        assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
-        self.type_into(window, "AP-7500", "all morning")
+        self.add_then_type(window, "AP-7500","all morning")
 
         self.assertEqual(dayview.total_seconds(data.record), 0)
 
@@ -171,7 +180,7 @@ class DayWindowSmoke(unittest.TestCase):
                        assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
-        field = self.type_into(window, "AP-7500", "all morning")
+        field = self.add_then_type(window, "AP-7500", "all morning")
         self.assertEqual(field.get(), "all morning")
         self.assertEqual(str(field.cget("highlightbackground")),
                          window.theme["danger"])
@@ -181,7 +190,7 @@ class DayWindowSmoke(unittest.TestCase):
                        assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
-        self.type_into(window, "AP-7500", "3")
+        self.add_then_type(window, "AP-7500","3")
         self.assertEqual(dayview.total_seconds(data.record), 3 * HOUR)
 
         field = window._fields["AP-7500"]
@@ -198,13 +207,37 @@ class DayWindowSmoke(unittest.TestCase):
         window.show_tab(INTERNAL)
         self.root.update()
 
-        window._add_from_internal(
+        window._add_to_today(
             dayview.internal_rows(data.record, INTERNAL_ISSUES)[0]
         )
         self.root.update()
 
         self.assertEqual(window.tab, MY_WORK)
         self.assertEqual(data.record["entries"][0]["issue_key"], "AI-1")
+
+    def test_adding_an_issue_gives_it_an_hours_box_with_the_caret_in_it(self):
+        # The point of + is that valuing the row is the very next keystroke.
+        data = DayData(day=date(2026, 8, 17), record=record(),
+                       assigned=ASSIGNED, internal=[])
+        window = self.build(data)
+
+        # focus_set only lands within a toplevel that itself holds focus. In
+        # use the window has just been clicked; here it has to be said aloud.
+        self.root.focus_force()
+        self.root.update()
+
+        row = dayview.project_rows(data.record, ASSIGNED, [])[0]
+        window._add_to_today(row)
+        self.root.update()
+
+        self.assertIn("AP-7500", window._fields)
+        self.assertEqual(self.root.focus_get(), window._fields["AP-7500"])
+
+    def test_an_issue_not_yet_added_has_no_hours_box(self):
+        data = DayData(day=date(2026, 8, 17), record=record(),
+                       assigned=ASSIGNED, internal=[])
+        self.build(data)
+        self.assertEqual(self.build(data)._fields, {})
 
     def test_fill_remaining_tops_up_the_last_row(self):
         data = DayData(
@@ -330,9 +363,11 @@ class DayWindowSmoke(unittest.TestCase):
         window._toggle_section("Projects")
         self.root.update()
 
-        self.assertEqual(len(window._fields), 16)
         labels = [w.cget("text") for w in _descendants(self.root)
                   if isinstance(w, tk.Label)]
+        shown = [text for text in labels if text.startswith("AP-")]
+
+        self.assertEqual(len(shown), 16)
         self.assertIn("show fewer", labels)
 
     def test_a_short_section_has_no_toggle(self):

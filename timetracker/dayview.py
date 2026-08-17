@@ -181,15 +181,28 @@ def unaccounted_seconds(record, target_seconds):
     return max(0, target_seconds - total_seconds(record))
 
 
-def fill_remaining(record, target_seconds):
-    """Give the shortfall to the last issue that has hours.
+LAST_MINUTE_OF_DAY = 24 * 3600 - 60
 
-    The common case is "the rest of the day was all that one thing". When
-    there is no such row the day is left short: inventing an issue to hang
-    the hours on would be worse than an honest gap.
+
+def fill_remaining(record, target_seconds):
+    """Share the shortfall between the rows you added but left blank.
+
+    Adding three issues and pressing Fill remaining is the fast path for a day
+    spent across all three. Where nothing was left blank the remainder goes to
+    the last row with hours, which covers "the rest was all that one thing".
+    With no rows at all the day stays short: inventing an issue to hang the
+    hours on would be worse than an honest gap.
     """
     shortfall = unaccounted_seconds(record, target_seconds)
     if not shortfall:
+        return record
+
+    blank = [
+        entry for entry in record["entries"]
+        if entry.get("seconds", 0) == 0 and not entry.get("submitted", False)
+    ]
+    if blank:
+        _share_between(shortfall, blank)
         return record
 
     for entry in reversed(record["entries"]):
@@ -198,6 +211,39 @@ def fill_remaining(record, target_seconds):
             entry["seconds"] += shortfall
             break
     return record
+
+
+def _share_between(seconds, entries):
+    """Divide seconds as evenly as whole seconds allow, losing none.
+
+    The remainder goes one second at a time to the earliest rows rather than
+    being rounded away, so the shares always add back up to the total.
+    """
+    share, remainder = divmod(seconds, len(entries))
+    for index, entry in enumerate(entries):
+        entry["seconds"] = share + (1 if index < remainder else 0)
+
+
+def schedule(record, day_start_seconds):
+    """Lay the day's rows end to end from the start of the working day.
+
+    Returns `{issue_key: seconds from midnight}` for every row with hours.
+    Submitted rows keep their slot so a row added afterwards is not scheduled
+    on top of time already in Tempo. A day long enough to run past midnight
+    is clamped: Tempo rejects a start time of 25:00, and a wrong-but-valid
+    time can be corrected later while a rejected worklog cannot.
+    """
+    starts = {}
+    cursor = day_start_seconds
+
+    for entry in record["entries"]:
+        seconds = entry.get("seconds", 0)
+        if seconds <= 0:
+            continue
+        starts[entry["issue_key"]] = min(cursor, LAST_MINUTE_OF_DAY)
+        cursor += seconds
+
+    return starts
 
 
 def entries_to_submit(record):

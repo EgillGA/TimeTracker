@@ -79,6 +79,13 @@ def format_hhmmss(seconds):
     return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
+def format_clock(seconds_from_midnight):
+    """Format a moment in the day as HH:MM:SS, which is what Tempo wants."""
+    hours, remainder = divmod(int(seconds_from_midnight), 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
 def format_hm(seconds):
     """Format a duration as H:MM — the way people actually say it.
 

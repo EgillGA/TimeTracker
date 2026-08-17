@@ -112,6 +112,7 @@ class WritingAWorklog(unittest.TestCase):
         tempo.create_worklog(
             account_id=ACCOUNT, issue_id=10412, seconds=5400,
             day=date(2026, 8, 17), description="Altimeter fix",
+            start_time="08:00:00",
         )
 
         self.assertEqual(transport.last["method"], "POST")
@@ -122,6 +123,26 @@ class WritingAWorklog(unittest.TestCase):
         self.assertEqual(body["startDate"], "2026-08-17")
         self.assertEqual(body["authorAccountId"], ACCOUNT)
         self.assertEqual(body["description"], "Altimeter fix")
+
+    def test_the_start_time_is_sent(self):
+        # Without it every worklog lands at midnight and the timesheet looks
+        # wrong even when the hours are right.
+        tempo, transport = client(ok({"tempoWorklogId": 1}))
+        tempo.create_worklog(
+            account_id=ACCOUNT, issue_id=1, seconds=3600,
+            day=date(2026, 8, 17), description="", start_time="13:30:00",
+        )
+        self.assertEqual(json.loads(transport.last["body"])["startTime"],
+                         "13:30:00")
+
+    def test_a_worklog_without_a_start_time_defaults_to_the_working_day(self):
+        tempo, transport = client(ok({"tempoWorklogId": 1}))
+        tempo.create_worklog(
+            account_id=ACCOUNT, issue_id=1, seconds=3600,
+            day=date(2026, 8, 17), description="",
+        )
+        self.assertEqual(json.loads(transport.last["body"])["startTime"],
+                         "08:00:00")
 
     def test_returns_the_new_worklog_id_so_it_is_never_posted_twice(self):
         tempo, _ = client(ok({"tempoWorklogId": 99123}))

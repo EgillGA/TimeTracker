@@ -358,6 +358,11 @@ class DayWindow:
             fg=self.theme["text_muted"]))
 
     def _hours_field(self, frame, row):
+        # Only rows on today take hours. An issue is added first and valued
+        # second, so the day is always built from a list you can see.
+        if not row.on_day:
+            return
+
         if row.submitted:
             tk.Label(frame, text=f"{format_hm(row.seconds)} logged",
                      bg=self.theme["surface"], fg=self.theme["accent"],
@@ -391,16 +396,25 @@ class DayWindow:
                     side="right", padx=(0, self.theme.space["xs"]))
 
     def _row_actions(self, frame, row):
-        if self.tab == INTERNAL and row.on_day:
-            # Already on today's list — show that, rather than an add button
-            # that would invite putting it there twice.
-            tk.Label(frame, text="✓", bg=self.theme["surface"],
-                     fg=self.theme["accent"], font=self.theme.font("body")).pack(
-                side="right", padx=(0, self.theme.space["sm"]))
+        if row.on_day:
+            if self.tab == INTERNAL:
+                # Already on today's list — say so, rather than offer an add
+                # button that would invite putting it there twice.
+                tk.Label(frame, text="✓", bg=self.theme["surface"],
+                         fg=self.theme["accent"],
+                         font=self.theme.font("body")).pack(
+                    side="right", padx=(0, self.theme.space["sm"]))
             return
 
-        if row.on_day and row.seconds:
-            return
+        add = tk.Label(frame, text="+", bg=self.theme["surface"],
+                       fg=self.theme["text_muted"],
+                       font=self.theme.font("body_bold"), cursor="hand2")
+        add.pack(side="right", padx=(0, self.theme.space["md"]))
+        add.bind("<Button-1>", lambda _e, r=row: self._add_to_today(r))
+        add.bind("<Enter>", lambda _e, w=add: w.configure(
+            fg=self.theme["accent"]))
+        add.bind("<Leave>", lambda _e, w=add: w.configure(
+            fg=self.theme["text_muted"]))
 
         start = tk.Label(frame, text="▶", bg=self.theme["surface"],
                          fg=self.theme["text_muted"],
@@ -408,14 +422,6 @@ class DayWindow:
         start.pack(side="right", padx=(0, self.theme.space["sm"]))
         start.bind("<Button-1>", lambda _e, r=row: self._start_timer(r))
         _hover(start, self.theme["surface"], self.theme["surface_hi"])
-
-        if self.tab == INTERNAL and not row.on_day:
-            add = tk.Label(frame, text="+", bg=self.theme["surface"],
-                           fg=self.theme["text_muted"],
-                           font=self.theme.font("body_bold"), cursor="hand2")
-            add.pack(side="right", padx=(0, self.theme.space["xs"]))
-            add.bind("<Button-1>", lambda _e, r=row: self._add_from_internal(r))
-            _hover(add, self.theme["surface"], self.theme["surface_hi"])
 
     def _add_by_key(self):
         frame = tk.Frame(self.list_frame, bg=self.theme["bg"])
@@ -482,11 +488,18 @@ class DayWindow:
             highlightcolor=self.theme["accent"] if valid else self.theme["danger"],
         )
 
-    def _add_from_internal(self, row):
+    def _add_to_today(self, row):
+        """Move an issue up into Tracked today, ready for its hours.
+
+        Adding and valuing are separate steps: you assemble the day's list
+        first, then say how long each took, rather than hunting for boxes
+        scattered down a list of everything you might have worked on.
+        """
         issue = {"key": row.issue_key, "id": row.issue_id, "summary": row.summary}
         dayview.set_hours(self.data.record, issue, 0)
         self._changed()
         self.show_tab(MY_WORK)
+
         field = self._fields.get(row.issue_key.upper())
         if field:
             field.focus_set()

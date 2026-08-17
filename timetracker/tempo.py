@@ -14,6 +14,7 @@ from timetracker.http import Response, check_status, urllib_transport
 BASE_URL = "https://api.tempo.io/4"
 SERVICE = "Tempo"
 MAX_PAGES = 20
+DEFAULT_START_TIME = "08:00:00"
 
 
 class TempoClient:
@@ -50,16 +51,22 @@ class TempoClient:
 
     # -- writing ------------------------------------------------------------
 
-    def create_worklog(self, account_id, issue_id, seconds, day, description):
+    def create_worklog(self, account_id, issue_id, seconds, day, description,
+                       start_time=DEFAULT_START_TIME):
         """Log time and return the new worklog id.
 
         The caller records that id, which is what makes resubmitting a
         partially failed day safe: anything with an id is never sent again.
+
+        `start_time` places the worklog in the day. Omitting it entirely makes
+        Tempo stack everything on midnight, which reads as a broken timesheet
+        even when the hours are right.
         """
         body = {
             "issueId": int(issue_id),
             "timeSpentSeconds": int(seconds),
             "startDate": day.isoformat(),
+            "startTime": start_time,
             "authorAccountId": account_id,
             "description": description or "",
         }

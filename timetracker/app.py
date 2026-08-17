@@ -12,6 +12,7 @@ from datetime import date
 from timetracker import dayview
 from timetracker.config import load_config, load_credentials
 from timetracker.dayview import DayData
+from timetracker.duration import format_clock
 from timetracker.http import ApiError
 from timetracker.jira import JiraClient
 from timetracker.store import Store
@@ -98,14 +99,27 @@ class AppService:
                 for entry in dayview.entries_to_submit(record)
             ]
 
+        # Lay the whole day out first, including rows already in Tempo, so
+        # each worklog gets a start time that follows the one before it.
+        starts = dayview.schedule(record, self._day_start_seconds())
+
         results = []
         for entry in dayview.entries_to_submit(record):
-            results.append(self._submit_one(record, entry, day, account_id))
+            results.append(
+                self._submit_one(record, entry, day, account_id, starts)
+            )
 
         self.store.save_day(record)
         return results
 
-    def _submit_one(self, record, entry, day, account_id):
+    def _day_start_seconds(self):
+        try:
+            hours, minutes = self.config.day_starts_at.split(":")[:2]
+            return int(hours) * 3600 + int(minutes) * 60
+        except (AttributeError, ValueError):
+            return 8 * 3600
+
+    def _submit_one(self, record, entry, day, account_id, starts):
         key = entry["issue_key"]
         try:
             issue_id = entry.get("issue_id") or self.jira.issue_id(key)
@@ -115,6 +129,7 @@ class AppService:
                 seconds=entry["seconds"],
                 day=day,
                 description=entry.get("note", ""),
+                start_time=format_clock(starts.get(key, 8 * 3600)),
             )
         except ApiError as error:
             return {"issue_key": key, "ok": False, "message": str(error)}

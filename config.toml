@@ -10,6 +10,10 @@ hours_per_day = 8.0
 prompt_time   = "15:30"
 week_view_day = "friday"
 
+# Worklogs are laid end to end from here, so a submitted day reads
+# 08:00-12:00, 12:00-16:00 rather than everything stacked on midnight.
+day_starts_at = "08:00"
+
 [timer]
 checkin_minutes   = 60
 heartbeat_seconds = 30

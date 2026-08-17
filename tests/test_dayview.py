@@ -15,6 +15,7 @@ from timetracker.dayview import (
     mark_submitted,
     project_rows,
     remove_entry,
+    schedule,
     set_hours,
     suggestion_rows,
     total_seconds,
@@ -271,17 +272,48 @@ class Totals(unittest.TestCase):
 
 
 class FillRemaining(unittest.TestCase):
-    def test_the_shortfall_goes_to_the_last_issue_with_hours(self):
+    """The shortfall is shared out between the rows you added but left blank.
+
+    Adding three issues and pressing Fill remaining is the fast path for a day
+    spent across all three; dumping the whole remainder on one of them would
+    be wrong in a way that is easy not to notice."""
+
+    def test_the_shortfall_is_split_between_the_empty_rows(self):
+        record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 0), entry("AP-3", 0)])
+        record = fill_remaining(record, 8 * HOUR)
+
+        seconds = [e["seconds"] for e in record["entries"]]
+        self.assertEqual(seconds, [3 * HOUR, 2.5 * HOUR, 2.5 * HOUR])
+
+    def test_a_single_empty_row_takes_all_of_it(self):
+        record = day([entry("AP-1", 6 * HOUR), entry("AP-2", 0)])
+        record = fill_remaining(record, 8 * HOUR)
+        self.assertEqual(record["entries"][1]["seconds"], 2 * HOUR)
+
+    def test_an_uneven_split_loses_no_seconds(self):
+        # Three ways into an hour is 1200s each; a split that rounds each
+        # share independently would quietly lose or invent time.
+        record = day([entry("AP-1", 0), entry("AP-2", 0), entry("AP-3", 0)])
+        record = fill_remaining(record, HOUR)
+
+        seconds = [e["seconds"] for e in record["entries"]]
+        self.assertEqual(sum(seconds), HOUR)
+        self.assertEqual(seconds, [1200, 1200, 1200])
+
+    def test_an_indivisible_split_still_totals_exactly(self):
+        record = day([entry("AP-1", 0), entry("AP-2", 0), entry("AP-3", 0)])
+        record = fill_remaining(record, HOUR + 1)
+
+        seconds = [e["seconds"] for e in record["entries"]]
+        self.assertEqual(sum(seconds), HOUR + 1)
+        self.assertEqual(max(seconds) - min(seconds), 1)
+
+    def test_with_no_empty_rows_it_tops_up_the_last_one(self):
         record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 2 * HOUR)])
         record = fill_remaining(record, 8 * HOUR)
 
         self.assertEqual(record["entries"][0]["seconds"], 3 * HOUR)
         self.assertEqual(record["entries"][1]["seconds"], 5 * HOUR)
-
-    def test_rows_left_empty_are_skipped(self):
-        record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 0)])
-        record = fill_remaining(record, 8 * HOUR)
-        self.assertEqual(record["entries"][0]["seconds"], 8 * HOUR)
 
     def test_nothing_happens_when_the_day_is_already_full(self):
         record = day([entry("AP-1", 8 * HOUR)])
@@ -301,6 +333,59 @@ class FillRemaining(unittest.TestCase):
 
         self.assertEqual(record["entries"][0]["seconds"], 3 * HOUR)
         self.assertEqual(record["entries"][1]["seconds"], 5 * HOUR)
+
+
+class SchedulingTheDay(unittest.TestCase):
+    """Worklogs get consecutive start times from the beginning of the working
+    day, so a submitted day reads 08:00-12:00, 12:00-16:00 rather than piling
+    everything on midnight."""
+
+    def test_the_first_row_starts_at_the_start_of_the_day(self):
+        record = day([entry("AP-1", 4 * HOUR)])
+        self.assertEqual(schedule(record, 8 * HOUR), {"AP-1": 8 * HOUR})
+
+    def test_each_row_starts_where_the_previous_one_ended(self):
+        record = day([entry("AP-1", 4 * HOUR), entry("AP-2", 4 * HOUR)])
+        self.assertEqual(
+            schedule(record, 8 * HOUR),
+            {"AP-1": 8 * HOUR, "AP-2": 12 * HOUR},
+        )
+
+    def test_three_uneven_rows_run_back_to_back(self):
+        record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 2 * HOUR),
+                      entry("AP-3", 3 * HOUR)])
+        self.assertEqual(
+            schedule(record, 8 * HOUR),
+            {"AP-1": 8 * HOUR, "AP-2": 11 * HOUR, "AP-3": 13 * HOUR},
+        )
+
+    def test_empty_rows_take_no_slot(self):
+        record = day([entry("AP-1", 4 * HOUR), entry("AP-2", 0),
+                      entry("AP-3", 4 * HOUR)])
+        scheduled = schedule(record, 8 * HOUR)
+
+        self.assertNotIn("AP-2", scheduled)
+        self.assertEqual(scheduled["AP-3"], 12 * HOUR)
+
+    def test_already_submitted_rows_still_occupy_their_time(self):
+        # Otherwise a row added later would be scheduled on top of one that
+        # is already in Tempo.
+        record = day([entry("AP-1", 4 * HOUR, submitted=True,
+                            tempo_worklog_id=1),
+                      entry("AP-2", 2 * HOUR)])
+        self.assertEqual(schedule(record, 8 * HOUR)["AP-2"], 12 * HOUR)
+
+    def test_the_start_of_the_day_is_configurable(self):
+        record = day([entry("AP-1", HOUR)])
+        self.assertEqual(schedule(record, 9 * HOUR), {"AP-1": 9 * HOUR})
+
+    def test_a_day_that_would_run_past_midnight_is_clamped(self):
+        # Tempo rejects a start time of 25:00. A wrong-but-valid time is
+        # recoverable; a rejected worklog at 15:30 is not.
+        record = day([entry("AP-1", 20 * HOUR), entry("AP-2", 2 * HOUR)])
+        scheduled = schedule(record, 8 * HOUR)
+
+        self.assertLess(scheduled["AP-2"], 24 * HOUR)
 
 
 class WhatGetsSentToTempo(unittest.TestCase):

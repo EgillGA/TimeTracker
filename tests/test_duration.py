@@ -9,6 +9,7 @@ import unittest
 
 from timetracker.duration import (
     InvalidDuration,
+    format_clock,
     format_hhmmss,
     format_hm,
     format_hours,
@@ -168,6 +169,25 @@ class FormatAsHoursAndMinutes(unittest.TestCase):
 
     def test_rounding_up_at_the_top_of_a_day(self):
         self.assertEqual(format_hm(28799), "8:00")
+
+
+class FormatAsAClockTime(unittest.TestCase):
+    """Tempo wants a wall-clock start time, HH:MM:SS."""
+
+    def test_start_of_the_working_day(self):
+        self.assertEqual(format_clock(8 * HOUR), "08:00:00")
+
+    def test_afternoon(self):
+        self.assertEqual(format_clock(13 * HOUR + 30 * MINUTE), "13:30:00")
+
+    def test_midnight(self):
+        self.assertEqual(format_clock(0), "00:00:00")
+
+    def test_hours_are_zero_padded(self):
+        self.assertEqual(format_clock(9 * HOUR), "09:00:00")
+
+    def test_seconds_are_kept(self):
+        self.assertEqual(format_clock(8 * HOUR + 90), "08:01:30")
 
 
 class RoundTrip(unittest.TestCase):

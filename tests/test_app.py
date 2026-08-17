@@ -24,7 +24,7 @@ def config(**overrides):
         jira_site="https://apt-oz.atlassian.net", jira_email="egill@aptoz.is",
         hours_per_day=8.0, prompt_time="15:30", week_view_day="friday",
         checkin_minutes=60, heartbeat_seconds=30, theme="dark",
-        internal_project="AI", jql=default_jql("AI"),
+        internal_project="AI", day_starts_at="08:00", jql=default_jql("AI"),
     )
     values.update(overrides)
     return Config(**values)
@@ -67,12 +67,13 @@ class FakeTempo:
         self.fail_for = fail_for or {}
         self.next_id = 46580
 
-    def create_worklog(self, account_id, issue_id, seconds, day, description):
+    def create_worklog(self, account_id, issue_id, seconds, day, description,
+                       start_time="08:00:00"):
         if issue_id in self.fail_for:
             raise self.fail_for[issue_id]
         self.created.append(
             {"issue_id": issue_id, "seconds": seconds, "day": day,
-             "description": description}
+             "description": description, "start_time": start_time}
         )
         self.next_id += 1
         return self.next_id
@@ -226,6 +227,62 @@ class Submitting(ServiceTestCase):
         self.service(tempo=tempo).submit(record, TODAY)
 
         self.assertEqual(tempo.created[0]["description"], "LOPA rework")
+
+
+class WorklogsRunThroughTheDay(ServiceTestCase):
+    """Two four-hour rows should read 08:00-12:00 and 12:00-16:00, not two
+    worklogs stacked on midnight."""
+
+    def test_the_first_row_starts_at_eight(self):
+        tempo = FakeTempo()
+        record = self.day_with([self.entry("AP-7500", 4 * HOUR, issue_id=7500)])
+
+        self.service(tempo=tempo).submit(record, TODAY)
+
+        self.assertEqual(tempo.created[0]["start_time"], "08:00:00")
+
+    def test_the_second_row_starts_where_the_first_ended(self):
+        tempo = FakeTempo()
+        record = self.day_with([self.entry("AP-7500", 4 * HOUR, issue_id=7500),
+                                self.entry("AP-7429", 4 * HOUR, issue_id=7429)])
+
+        self.service(tempo=tempo).submit(record, TODAY)
+
+        self.assertEqual([w["start_time"] for w in tempo.created],
+                         ["08:00:00", "12:00:00"])
+
+    def test_uneven_rows_still_run_back_to_back(self):
+        tempo = FakeTempo()
+        record = self.day_with([self.entry("AP-7500", 3 * HOUR, issue_id=7500),
+                                self.entry("AP-7429", 90 * 60, issue_id=7429),
+                                self.entry("AI-1", 2 * HOUR, issue_id=1)])
+
+        self.service(tempo=tempo).submit(record, TODAY)
+
+        self.assertEqual([w["start_time"] for w in tempo.created],
+                         ["08:00:00", "11:00:00", "12:30:00"])
+
+    def test_the_start_of_the_day_is_configurable(self):
+        tempo = FakeTempo()
+        record = self.day_with([self.entry("AP-7500", HOUR, issue_id=7500)])
+
+        self.service(tempo=tempo, day_starts_at="09:00").submit(record, TODAY)
+
+        self.assertEqual(tempo.created[0]["start_time"], "09:00:00")
+
+    def test_a_row_added_after_a_submission_starts_after_it(self):
+        # The submitted row keeps its slot, so the new one does not land on
+        # top of time already in Tempo.
+        tempo = FakeTempo()
+        record = self.day_with([
+            self.entry("AP-7500", 4 * HOUR, issue_id=7500, submitted=True,
+                       tempo_worklog_id=1),
+            self.entry("AP-7429", 2 * HOUR, issue_id=7429),
+        ])
+
+        self.service(tempo=tempo).submit(record, TODAY)
+
+        self.assertEqual(tempo.created[0]["start_time"], "12:00:00")
 
 
 class WhenSubmissionPartlyFails(ServiceTestCase):
