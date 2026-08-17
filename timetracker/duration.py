@@ -79,6 +79,20 @@ def format_hhmmss(seconds):
     return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
+def parse_clock(text, fallback=0):
+    """Read "15:30" as seconds from midnight, or fall back.
+
+    A typo in config.toml must never be able to disable the tool, so this
+    never raises — it returns the caller's default instead.
+    """
+    try:
+        hours, minutes = str(text).split(":")[:2]
+        seconds = int(hours) * 3600 + int(minutes) * 60
+    except (AttributeError, TypeError, ValueError):
+        return fallback
+    return seconds if 0 <= seconds < 24 * 3600 else fallback
+
+
 def format_clock(seconds_from_midnight):
     """Format a moment in the day as HH:MM:SS, which is what Tempo wants."""
     hours, remainder = divmod(int(seconds_from_midnight), 3600)

@@ -44,11 +44,33 @@ moved on without it.
 | Command | What happens |
 |---|---|
 | `py -m timetracker` | Day window |
-| `py -m timetracker --week` | Week overview |
-| `py -m timetracker --timer AV-412` | Start the timer on an issue |
+| `py -m timetracker --preview` | Day window with invented data, no network |
+| `py -m timetracker --auto` | What the scheduled task runs |
 
-Automatic launch at 15:30 on weekdays, plus a catch-up at logon if the machine
-was off, is installed with `py install.py` and removed with `py uninstall.py`.
+## Appearing on its own
+
+```
+py install.py
+```
+
+Creates one scheduled task, as you, with no administrator rights. It fires at
+15:30 on weekdays and again two minutes after logon, and each time the program
+decides for itself whether there is anything worth showing — so unlocking your
+laptop at ten in the morning costs nothing, while a day the machine was off at
+15:30 still gets its prompt.
+
+It stays silent when the day is settled: something reached Tempo and nothing
+is still waiting. A part-submitted day is not settled, and does prompt.
+
+```
+py install.py --status     is it installed, when does it next run
+py install.py --dry-run    print the task definition, change nothing
+schtasks /Run /TN TimeTracker    trigger it now
+py uninstall.py            remove it
+```
+
+Removal is documented as prominently as installation on purpose: an automation
+you cannot easily switch off is one that gets killed crudely instead.
 
 ## Tests
 
@@ -85,8 +107,8 @@ out, is in
 
 ## Status
 
-Working: configuration, storage, week arithmetic, duration parsing, Jira and
-Tempo clients, connection smoke test.
+Working: the day window against live Jira and Tempo, submission with real
+start times, the scheduled task, configuration, storage, week arithmetic and
+duration parsing.
 
-Not yet built: the windows themselves, the timer strip, and the Task Scheduler
-installer.
+Not yet built: the Friday week overview, and the live timer strip.

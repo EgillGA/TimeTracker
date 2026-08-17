@@ -1,15 +1,19 @@
 """Entry point.
 
     py -m timetracker              the day window, with live Jira and Tempo
-    py -m timetracker --preview    the day window with invented data
+    py -m timetracker --auto       what the scheduled task runs
     py -m timetracker --week       the week overview (not built yet)
+    py -m timetracker --preview    the day window with invented data
 
-Scheduled launches will add --scheduled and --catchup once the installer
-exists; for now every invocation opens the day.
+--auto is the one the Task Scheduler calls, at 15:30 on weekdays and again
+after logon. It decides for itself whether there is anything worth showing
+and exits silently when there is not, so an unlock at ten in the morning
+costs nothing.
 """
 
 import sys
 import tkinter as tk
+from datetime import date, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -22,6 +26,9 @@ def main(argv):
         preview("light" if "light" in argv else "dark")
         return 0
 
+    if "--auto" in argv:
+        return run_auto()
+
     if "--week" in argv:
         from timetracker import ui_notice
 
@@ -31,6 +38,27 @@ def main(argv):
         return 0
 
     return open_day()
+
+
+def run_auto():
+    """The scheduled path: decide, then get out of the way if there is nothing."""
+    from timetracker import launch
+    from timetracker.config import load_config
+    from timetracker.single_instance import SingleInstance
+    from timetracker.store import Store
+
+    config = load_config(ROOT)
+    record = Store().load_day(date.today())
+
+    if launch.decide(datetime.now(), record, config) == launch.NOTHING:
+        return 0
+
+    # A window is already open — probably the one you are typing into. The
+    # logon trigger must not stack a second copy of the day on top of it.
+    with SingleInstance() as lock:
+        if not lock.acquired:
+            return 0
+        return open_day()
 
 
 def open_day():
