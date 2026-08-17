@@ -1,0 +1,9 @@
+# Never commit API tokens
+credentials.toml
+
+# Local state (also lives in %APPDATA%, but keep stray copies out)
+state/
+*.corrupt-*
+__pycache__/
+*.pyc
+.pytest_cache/

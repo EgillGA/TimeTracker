@@ -1,0 +1,26 @@
+# Timelogger settings. Safe to read, safe to share — no secrets in here.
+# API tokens live in credentials.toml, which is git-ignored.
+
+[jira]
+site  = "https://apt-oz.atlassian.net"
+email = "egill@aptoz.is"
+
+[schedule]
+hours_per_day = 8.0
+prompt_time   = "15:30"
+week_view_day = "friday"
+
+[timer]
+checkin_minutes   = 60
+heartbeat_seconds = 30
+
+[ui]
+theme = "dark"          # "dark" or "light"
+
+[internal]
+project = "AI"
+
+[jql]
+assigned = "assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC"
+recent   = "(assignee WAS currentUser() OR worklogAuthor = currentUser()) AND updated >= -7d ORDER BY updated DESC"
+internal = "project = AI AND statusCategory != Done ORDER BY key ASC"
