@@ -15,7 +15,7 @@ The pages know only how to fill the frame they are handed.
 import tkinter as tk
 from datetime import date
 
-from timetracker import icon
+from timetracker import icon, win
 from timetracker.theme import Theme
 
 DAY = "day"
@@ -37,6 +37,9 @@ class Shell:
 
         self.window.configure(bg=self.theme["bg"])
         icon.apply(self.window)
+        # Tk asks for a light title bar whatever the window looks like, which
+        # on the dark theme leaves a white strip belonging to no theme at all.
+        win.dark_titlebar(self.window, dark=self.theme.name == "dark")
         width, height = self.theme.metrics["day_window"]
         self.window.geometry(f"{width}x{height}")
         self.window.minsize(560, 420)

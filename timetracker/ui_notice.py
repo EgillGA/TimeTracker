@@ -9,7 +9,7 @@ grey dialog, because this is the window someone sees on a bad morning.
 import subprocess
 import tkinter as tk
 
-from timetracker import icon
+from timetracker import icon, win
 from timetracker.theme import Theme
 
 
@@ -20,6 +20,7 @@ def show(title, message, open_path=None, theme=None):
     root.title(title)
     root.configure(bg=theme["bg"])
     icon.apply(root)
+    win.dark_titlebar(root, dark=theme.name == "dark")
     root.geometry("560x300")
     root.minsize(420, 240)
 

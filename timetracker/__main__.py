@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def main(argv):
+    from timetracker import win
+
+    # Before any window exists: this is what makes the taskbar treat us as an
+    # application rather than as python.exe, so the button carries our icon.
+    win.set_app_id()
+
     if "--preview" in argv:
         from timetracker.ui_day import preview
 
