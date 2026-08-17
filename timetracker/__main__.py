@@ -37,12 +37,7 @@ def main(argv):
         return run_timer(argv[index + 1])
 
     if "--week" in argv:
-        from timetracker import ui_notice
-
-        ui_notice.show("Not built yet",
-                       "The week overview is the next thing being built.\n\n"
-                       "For now, open the day window without --week.")
-        return 0
+        return open_week()
 
     return open_day()
 
@@ -57,7 +52,8 @@ def run_auto():
     config = load_config(ROOT)
     record = Store().load_day(date.today())
 
-    if launch.decide(datetime.now(), record, config) == launch.NOTHING:
+    action = launch.decide(datetime.now(), record, config)
+    if action == launch.NOTHING:
         return 0
 
     # A window is already open — probably the one you are typing into. The
@@ -65,7 +61,9 @@ def run_auto():
     with SingleInstance() as lock:
         if not lock.acquired:
             return 0
-        return open_day()
+        # Fridays open on the week: today's hours matter less than the four
+        # days behind it that can still be fixed.
+        return open_week() if action == launch.WEEK else open_day()
 
 
 def _service_or_setup(theme):
@@ -82,10 +80,16 @@ def _service_or_setup(theme):
 
 def open_day():
     """The day window, with ▶ able to start a timer without closing it."""
-    return _run_session(open_with_timer=None)
+    return _run_session()
 
 
-def _build_day_window(master, service, theme, on_start_timer, on_running=None):
+def open_week():
+    """The week overview on its own."""
+    return _run_session(start_on_week=True)
+
+
+def _build_day_window(master, service, theme, on_start_timer, on_running=None,
+                      on_show_week=None):
     """Attach a day window to an existing root or toplevel."""
     from timetracker.ui_day import DayCallbacks, DayWindow
 
@@ -98,6 +102,22 @@ def _build_day_window(master, service, theme, on_start_timer, on_running=None):
             on_lookup=service.lookup,
             on_start_timer=on_start_timer,
             on_running=on_running,
+            on_show_week=on_show_week or (lambda: None),
+        ),
+        theme,
+    )
+
+
+def _build_week_window(master, service, theme):
+    """Attach the week overview to an existing toplevel."""
+    from timetracker.ui_week import WeekCallbacks, WeekWindow
+
+    return WeekWindow(
+        master, service.load_week(),
+        WeekCallbacks(
+            on_change=service.save,
+            on_submit=service.submit,
+            on_lookup=service.lookup,
         ),
         theme,
     )
@@ -108,7 +128,7 @@ def run_timer(issue_key):
     return _run_session(open_with_timer=issue_key)
 
 
-def _run_session(open_with_timer):
+def _run_session(open_with_timer=None, start_on_week=False):
     """One session, one event loop, whichever end you come in from.
 
     Both the day window and the timer strip belong to the same TimerSession,
@@ -159,10 +179,16 @@ def _run_session(open_with_timer):
             # The strip is the authority while it runs, so ask it rather than
             # re-reading the file it only writes every 30 seconds.
             on_running=on_running,
+            on_show_week=lambda: session.show_week(),
+        ),
+        week_builder=lambda toplevel: _build_week_window(
+            toplevel, service, theme
         ),
     )
 
-    if open_with_timer:
+    if start_on_week:
+        session.show_week()
+    elif open_with_timer:
         issue = service.lookup(open_with_timer)
         if issue is None:
             ui_notice.show("No such issue",

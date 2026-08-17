@@ -6,7 +6,7 @@ those two numbers separate all the way through is what stops the same hour
 from being counted twice.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 WEEKDAYS_PER_WEEK = 5
@@ -54,6 +54,35 @@ class DaySummary:
     @property
     def is_complete(self):
         return self.missing_seconds == 0
+
+
+@dataclass
+class WeekData:
+    """Everything the week window needs.
+
+    `records` carries each day's local record so any day can be edited in
+    place, not just looked at — the point of the view is fixing a short week,
+    not admiring it.
+    """
+
+    days: list = field(default_factory=list)
+    records: dict = field(default_factory=dict)
+    assigned: list = field(default_factory=list)
+    internal: list = field(default_factory=list)
+    target_seconds: int = 8 * 3600
+    banner: str = ""
+
+    @property
+    def total_seconds(self):
+        return sum(day.total_seconds for day in self.days)
+
+    @property
+    def week_target_seconds(self):
+        return sum(day.target_seconds for day in self.days)
+
+    @property
+    def short_days(self):
+        return [day for day in self.days if not day.is_complete]
 
 
 @dataclass(frozen=True)

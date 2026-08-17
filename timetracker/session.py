@@ -16,16 +16,20 @@ from timetracker import dayview
 
 
 class TimerSession:
-    def __init__(self, root, record, save_day, clear_timer, day_builder):
+    def __init__(self, root, record, save_day, clear_timer, day_builder,
+                 week_builder=None):
         self.root = root
         self.record = record
         self.save_day = save_day
         self.clear_timer = clear_timer
         self.day_builder = day_builder
+        self.week_builder = week_builder
 
         self.strip = None
         self.toplevel = None
         self.day = None
+        self.week_toplevel = None
+        self.week = None
         # False until a timer is actually running. That matters for the rule
         # below about closing the day window: with no timer going, closing it
         # is the end of the run.
@@ -82,6 +86,29 @@ class TimerSession:
 
         self._end_run_when_closed(self.toplevel)
         return self.day
+
+    def week_is_open(self):
+        return (self.week_toplevel is not None
+                and self.week_toplevel.winfo_exists())
+
+    def show_week(self):
+        """Open the week overview, or bring the one already open forward.
+
+        Unlike the day window, closing this one ends nothing: it is somewhere
+        you go to look and fix, not the thing that holds the session open.
+        """
+        if self.week_builder is None:
+            return None
+
+        if self.week_is_open():
+            self.week_toplevel.deiconify()
+            self.week_toplevel.lift()
+            self.week_toplevel.focus_force()
+            return self.week
+
+        self.week_toplevel = tk.Toplevel(self.root)
+        self.week = self.week_builder(self.week_toplevel)
+        return self.week
 
     def _end_run_when_closed(self, toplevel):
         """Once the timer has stopped this is the only window left, so closing

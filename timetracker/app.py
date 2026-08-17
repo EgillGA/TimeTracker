@@ -9,7 +9,8 @@ down is worse than no tool, because it also costs you the habit.
 
 from datetime import date, datetime, timedelta
 
-from timetracker import dayview, timer
+from timetracker import dayview, timer, week
+from timetracker.week import weekdays_of_week
 from timetracker.config import load_config, load_credentials
 from timetracker.dayview import DayData
 from timetracker.duration import format_clock
@@ -133,6 +134,48 @@ class AppService:
 
         self.store.save_internal_cache(internal)
         return internal, ""
+
+    def load_week(self, reference=None):
+        """The week around `reference`, with every day editable.
+
+        Tempo is authoritative for hours it already holds; local records
+        supply what has not been sent yet. They are kept apart all the way
+        through, because counting a submitted local row as pending as well is
+        how a week comes to claim sixteen hours on an eight hour day.
+        """
+        days = weekdays_of_week(reference or date.today())
+        records = {day: self.store.load_day(day) for day in days}
+        notes = list(self.store.warnings)
+
+        submitted = self.week_totals(days[0], days[-1])
+        pending = {
+            day: week.pending_seconds(record["entries"])
+            for day, record in records.items()
+        }
+
+        assigned, internal = [], []
+        try:
+            assigned = self.jira.search(self.config.jql["assigned"])
+        except ApiError as error:
+            notes.append(f"{error} Showing what is saved locally.")
+
+        internal, problem = self._internal()
+        if problem and problem not in notes:
+            notes.append(problem)
+
+        summary = week.summarise_week(
+            reference or date.today(), submitted, pending,
+            self.config.hours_per_day,
+        )
+
+        return week.WeekData(
+            days=summary.days,
+            records=records,
+            assigned=assigned,
+            internal=internal,
+            target_seconds=int(self.config.hours_per_day * 3600),
+            banner=" ".join(notes),
+        )
 
     # -- submitting ---------------------------------------------------------
 

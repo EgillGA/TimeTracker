@@ -33,6 +33,7 @@ class DayCallbacks:
     on_start_timer: callable = lambda issue: None
     on_lookup: callable = lambda key: None
     on_close: callable = lambda: None
+    on_show_week: callable = lambda: None
     # Asked every second for the timer's current state, so pausing or stopping
     # from the strip is reflected here instead of the window counting on
     # against a timer that is no longer running.
@@ -88,6 +89,20 @@ class DayWindow:
             fg=self.theme["text"], font=self.theme.font("heading"), anchor="w",
         )
         self.title_label.pack(side="left")
+
+        # The way out to the whole week. A short Wednesday is invisible from
+        # here, so there has to be a door to where it can be seen and fixed.
+        self.week_button = tk.Label(
+            self.header, text="▦  Week", bg=self.theme["surface"],
+            fg=self.theme["text"], font=self.theme.font("small"),
+            padx=self.theme.space["sm"], pady=self.theme.space["xs"],
+            cursor="hand2",
+        )
+        self.week_button.pack(side="left", padx=(self.theme.space["md"], 0))
+        self.week_button.bind("<Button-1>",
+                              lambda _e: self.callbacks.on_show_week())
+        _hover(self.week_button, self.theme["surface"],
+               self.theme["surface_hi"])
 
         self.total_label = tk.Label(
             self.header, bg=self.theme["bg"], fg=self.theme["text"],

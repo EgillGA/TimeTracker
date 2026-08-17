@@ -479,6 +479,96 @@ class RecoveringAnInterruptedTimer(ServiceTestCase):
         self.assertEqual(self.service().load_day(TODAY).banner, "")
 
 
+class LoadingTheWeek(ServiceTestCase):
+    """The week view has to combine two sources: what Tempo already holds for
+    each day, and what is sitting unsubmitted in the local records."""
+
+    def week_tempo(self, totals):
+        class Weekly(FakeTempo):
+            def seconds_by_date(inner, account_id, start, end):
+                return totals
+
+        return Weekly()
+
+    def save_day(self, day, entries):
+        record = self.store.load_day(day)
+        record["entries"] = entries
+        self.store.save_day(record)
+
+    def test_it_covers_monday_to_friday(self):
+        week = self.service().load_week(TODAY)
+        self.assertEqual([d.date for d in week.days],
+                         [date(2026, 8, n) for n in (17, 18, 19, 20, 21)])
+
+    def test_hours_already_in_tempo_are_shown(self):
+        tempo = self.week_tempo({date(2026, 8, 17): 8 * HOUR})
+        week = self.service(tempo=tempo).load_week(TODAY)
+
+        self.assertEqual(week.days[0].submitted_seconds, 8 * HOUR)
+        self.assertTrue(week.days[0].is_complete)
+
+    def test_unsubmitted_local_hours_count_too(self):
+        self.save_day(date(2026, 8, 19), [self.entry("AP-1", 4 * HOUR)])
+        week = self.service().load_week(TODAY)
+
+        self.assertEqual(week.days[2].pending_seconds, 4 * HOUR)
+        self.assertEqual(week.days[2].total_seconds, 4 * HOUR)
+
+    def test_submitted_local_hours_are_not_counted_twice(self):
+        # Tempo already reports them; counting the local copy as well would
+        # show sixteen hours for an eight hour day.
+        self.save_day(date(2026, 8, 17),
+                      [self.entry("AP-1", 8 * HOUR, submitted=True,
+                                  tempo_worklog_id=1)])
+        tempo = self.week_tempo({date(2026, 8, 17): 8 * HOUR})
+        week = self.service(tempo=tempo).load_week(TODAY)
+
+        self.assertEqual(week.days[0].total_seconds, 8 * HOUR)
+
+    def test_short_days_are_reported(self):
+        tempo = self.week_tempo({date(2026, 8, 17): 8 * HOUR,
+                                 date(2026, 8, 18): 4 * HOUR})
+        week = self.service(tempo=tempo).load_week(TODAY)
+
+        self.assertEqual([d.date for d in week.days if not d.is_complete],
+                         [date(2026, 8, n) for n in (18, 19, 20, 21)])
+
+    def test_each_day_brings_its_record_so_it_can_be_edited(self):
+        self.save_day(date(2026, 8, 19), [self.entry("AP-1", 4 * HOUR)])
+        week = self.service().load_week(TODAY)
+
+        record = week.records[date(2026, 8, 19)]
+        self.assertEqual(record["entries"][0]["issue_key"], "AP-1")
+        self.assertEqual(record["date"], "2026-08-19")
+
+    def test_every_day_has_a_record_even_when_empty(self):
+        week = self.service().load_week(TODAY)
+        for day in week.days:
+            with self.subTest(day=day.date):
+                self.assertIn(day.date, week.records)
+
+    def test_the_issue_lists_come_along_for_editing(self):
+        jira = FakeJira({
+            "assignee = currentUser() AND statusCategory": [
+                {"key": "AP-7500", "id": 7500, "summary": "LOPA"}],
+            "project = AI": [{"key": "AI-1", "id": 1, "summary": "WORK"}],
+        })
+        week = self.service(jira).load_week(TODAY)
+
+        self.assertEqual([i["key"] for i in week.assigned], ["AP-7500"])
+        self.assertEqual([i["key"] for i in week.internal], ["AI-1"])
+
+    def test_tempo_being_down_still_shows_local_hours(self):
+        class Broken(FakeTempo):
+            def seconds_by_date(inner, account_id, start, end):
+                raise NetworkError("tempo down")
+
+        self.save_day(date(2026, 8, 17), [self.entry("AP-1", 3 * HOUR)])
+        week = self.service(tempo=Broken()).load_week(TODAY)
+
+        self.assertEqual(week.days[0].total_seconds, 3 * HOUR)
+
+
 class LookingUpATypedKey(ServiceTestCase):
     def test_a_known_key_comes_back_with_its_id(self):
         issue = self.service().lookup("AP-7500")

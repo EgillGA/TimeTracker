@@ -275,6 +275,56 @@ class StartingATimerFromTheDayWindow(unittest.TestCase):
             self.root.winfo_exists()
 
 
+class TheWeekWindow(SessionTestCase):
+    def setUp(self):
+        super().setUp()
+        self.weeks = []
+        self.session.week_builder = self._build_week
+
+    def _build_week(self, master):
+        window = FakeDayWindow(master)
+        self.weeks.append(window)
+        return window
+
+    def test_it_opens(self):
+        self.session.show_week()
+
+        self.assertEqual(len(self.weeks), 1)
+        self.assertTrue(self.session.week_toplevel.winfo_exists())
+
+    def test_pressing_again_reuses_it(self):
+        first = self.session.show_week()
+        second = self.session.show_week()
+
+        self.assertIs(first, second)
+        self.assertEqual(len(self.weeks), 1)
+
+    def test_closing_it_ends_nothing(self):
+        # It is somewhere you go to look and fix, not what holds the session
+        # open. Closing it must not stop a running timer.
+        self.session.show_week()
+        self.session.week_toplevel.destroy()
+        self.root.update()
+
+        self.assertTrue(self.root.winfo_exists())
+        self.assertTrue(self.session.timing)
+
+    def test_a_closed_week_window_reopens(self):
+        self.session.show_week()
+        self.session.week_toplevel.destroy()
+        self.root.update()
+
+        self.session.show_week()
+        self.assertEqual(len(self.weeks), 2)
+
+    def test_it_can_be_open_alongside_the_day(self):
+        self.session.show_day()
+        self.session.show_week()
+
+        self.assertTrue(self.session.day_is_open())
+        self.assertTrue(self.session.week_is_open())
+
+
 class ClosingTheDayWindow(SessionTestCase):
     def test_while_a_timer_runs_the_process_stays_alive(self):
         self.session.show_day()
