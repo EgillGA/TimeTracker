@@ -33,6 +33,10 @@ class DayCallbacks:
     on_start_timer: callable = lambda issue: None
     on_lookup: callable = lambda key: None
     on_close: callable = lambda: None
+    # Asked every second for the timer's current state, so pausing or stopping
+    # from the strip is reflected here instead of the window counting on
+    # against a timer that is no longer running.
+    on_running: callable = None
 
 
 MY_WORK, INTERNAL = "My work", "Internal"
@@ -58,6 +62,7 @@ class DayWindow:
         self.suggestion_count = getattr(data, "suggestion_count", 5)
         self._fields = {}
         self._running_label = None
+        self._shown_running = None
 
         master.title(f"TimeTracker — {data.day:%A %d %B}")
         master.configure(bg=self.theme["bg"])
@@ -508,6 +513,12 @@ class DayWindow:
 
     # -- events -------------------------------------------------------------
 
+    def _running_state(self):
+        """The timer's state now, re-asked rather than remembered."""
+        if self.callbacks.on_running is not None:
+            return self.callbacks.on_running()
+        return self.data.running
+
     def running_row(self):
         """The live timer as `{issue_key, issue_id, summary, seconds}`, or None.
 
@@ -515,7 +526,7 @@ class DayWindow:
         last figure it wrote to disk, so the number here matches the strip
         even though the strip only persists every half minute.
         """
-        state = self.data.running
+        state = self._running_state()
         if not state:
             return None
 
@@ -532,8 +543,15 @@ class DayWindow:
 
     def _tick_running(self):
         """Keep the live figure moving without rebuilding the list."""
-        if self.data.running:
-            row = self.running_row()
+        row = self.running_row()
+
+        if (row is None) != (self._shown_running is None):
+            # Started or stopped since the last beat — the row itself has to
+            # appear or disappear, which needs a rebuild.
+            self._shown_running = row
+            self.refresh()
+        elif row is not None:
+            self._shown_running = row
             if self._running_label is not None:
                 try:
                     self._running_label.configure(

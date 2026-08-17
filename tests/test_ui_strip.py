@@ -141,19 +141,39 @@ class TheStripItself(unittest.TestCase):
         self.assertEqual(self.stopped[0]["issue_key"], "AP-7500")
         self.assertEqual(self.stopped[0]["seconds"], 90 * 60)
 
+    def test_the_timer_is_on_disk_the_moment_it_starts(self):
+        """Nothing else can see the timer until it is written down.
+
+        Waiting for the first heartbeat left a half-minute window where the
+        day window found no timer and showed no running row, and where a crash
+        lost the run entirely."""
+        self.build()
+
+        self.assertTrue(self.persisted, "the strip must persist on start")
+        self.assertEqual(self.persisted[0]["issue_key"], "AP-7500")
+
     def test_state_is_written_to_disk_as_it_runs(self):
         # A crash costs at most one heartbeat, not the whole afternoon.
         strip = self.build()
         strip.tick(NINE + timedelta(seconds=31))
 
-        self.assertTrue(self.persisted)
+        self.assertEqual(len(self.persisted), 2)
         self.assertEqual(self.persisted[-1]["issue_key"], "AP-7500")
 
     def test_it_does_not_write_on_every_single_tick(self):
         strip = self.build()
+        writes_after_start = len(self.persisted)
+
         strip.tick(NINE + timedelta(seconds=1))
         strip.tick(NINE + timedelta(seconds=2))
-        self.assertEqual(self.persisted, [])
+
+        self.assertEqual(len(self.persisted), writes_after_start)
+
+    def test_the_heartbeat_it_writes_on_start_is_current(self):
+        # A stale first heartbeat would read as a crashed timer, and its time
+        # would be recovered out from under the running strip.
+        self.build()
+        self.assertEqual(self.persisted[0]["last_heartbeat"], NINE.isoformat())
 
     def test_the_check_in_appears_after_an_hour(self):
         strip = self.build()

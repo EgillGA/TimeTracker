@@ -114,6 +114,7 @@ class DayWindowSmoke(unittest.TestCase):
             "on_start_timer": self.started.append,
             "on_lookup": lambda key: None,
             "on_close": lambda: None,
+            "on_running": None,
         }
         defaults.update(callbacks)
         window = DayWindow(self.root, data, DayCallbacks(**defaults))
@@ -442,6 +443,44 @@ class DayWindowSmoke(unittest.TestCase):
         keys = [w.cget("text") for w in _descendants(self.root)
                 if isinstance(w, tk.Label) and w.cget("text") == "AP-7500"]
         self.assertEqual(len(keys), 1)
+
+    def test_the_timer_state_is_re_asked_not_remembered(self):
+        """Pausing on the strip must stop the window counting.
+
+        The window used to hold a snapshot taken when it opened, so it carried
+        on ticking against a timer that had been paused minutes earlier."""
+        live = {"state": self.running_state(minutes=10)}
+        window = self.build(
+            DayData(day=date(2026, 8, 17), record=record()),
+            on_running=lambda: live["state"],
+        )
+        first = window.running_row()["seconds"]
+
+        # Pause it, as the strip would.
+        live["state"] = dict(live["state"],
+                             paused_at=datetime.now().isoformat())
+        window._tick_running()
+        self.root.update()
+
+        frozen = window.running_row()["seconds"]
+        self.assertLessEqual(abs(frozen - first), 2)
+        self.assertTrue(window.running_row(), "a paused timer still shows")
+
+    def test_stopping_the_timer_removes_the_row(self):
+        live = {"state": self.running_state()}
+        window = self.build(
+            DayData(day=date(2026, 8, 17), record=record(), assigned=ASSIGNED),
+            on_running=lambda: live["state"],
+        )
+        self.assertIsNotNone(window.running_row())
+
+        live["state"] = None
+        window._tick_running()
+        self.root.update()
+
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertEqual([t for t in labels if t.startswith("● ")], [])
 
     def test_no_running_timer_means_no_live_figure(self):
         window = self.build()

@@ -77,6 +77,12 @@ class TimerStrip:
         self._configure_window()
         self._build()
         self._place()
+
+        # Write it down straight away. Until the state is on disk nothing else
+        # can see the timer: the day window finds no running row, and a crash
+        # in the first half-minute loses the run completely.
+        self.callbacks.on_persist(self.state)
+
         self.tick(now or datetime.now())
         self._schedule_tick()
 

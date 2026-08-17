@@ -102,7 +102,7 @@ def open_day():
     return 0
 
 
-def _build_day_window(master, service, theme, on_start_timer):
+def _build_day_window(master, service, theme, on_start_timer, on_running=None):
     """Attach a day window to an existing root or toplevel."""
     from timetracker.ui_day import DayCallbacks, DayWindow
 
@@ -114,6 +114,7 @@ def _build_day_window(master, service, theme, on_start_timer):
             on_submit=lambda record: service.submit(record, data.day),
             on_lookup=service.lookup,
             on_start_timer=on_start_timer,
+            on_running=on_running,
         ),
         theme,
     )
@@ -170,10 +171,17 @@ def run_timer(issue_key):
 
         window = tk.Toplevel(root)
         open_windows["day"] = window
-        _build_day_window(window, service, theme,
-                          on_start_timer=lambda _issue: None)
+        _build_day_window(
+            window, service, theme,
+            on_start_timer=lambda _issue: None,
+            # The strip is the authority while it runs, so ask it rather than
+            # re-reading the file it only writes every 30 seconds. A paused
+            # timer still reports its state: the figure freezes, which is what
+            # paused looks like, rather than the row vanishing.
+            on_running=lambda: strip.state,
+        )
 
-    TimerStrip(
+    strip = TimerStrip(
         root, issue, config,
         StripCallbacks(
             on_persist=store.save_timer,
