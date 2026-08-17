@@ -81,25 +81,8 @@ def _service_or_setup(theme):
 
 
 def open_day():
-    from timetracker.config import load_config
-    from timetracker.theme import Theme
-
-    theme = Theme(load_config(ROOT).theme)
-    service = _service_or_setup(theme)
-    if service is None:
-        return 1
-
-    root = tk.Tk()
-
-    def start_timer(issue):
-        # The day window makes way for the strip: the point of starting a
-        # timer is to get back to work, not to keep a form open.
-        root.destroy()
-        run_timer(issue["key"])
-
-    _build_day_window(root, service, theme, on_start_timer=start_timer)
-    root.mainloop()
-    return 0
+    """The day window, with ▶ able to start a timer without closing it."""
+    return _run_session(open_with_timer=None)
 
 
 def _build_day_window(master, service, theme, on_start_timer, on_running=None):
@@ -122,8 +105,19 @@ def _build_day_window(master, service, theme, on_start_timer, on_running=None):
 
 def run_timer(issue_key):
     """Start the strip on an issue and stay running until it is stopped."""
-    from timetracker import dayview, ui_notice
+    return _run_session(open_with_timer=issue_key)
+
+
+def _run_session(open_with_timer):
+    """One session, one event loop, whichever end you come in from.
+
+    Both the day window and the timer strip belong to the same TimerSession,
+    so starting a timer never closes the day window and stopping one never
+    rebuilds it.
+    """
+    from timetracker import ui_notice
     from timetracker.config import load_config
+    from timetracker.session import TimerSession
     from timetracker.store import Store
     from timetracker.theme import Theme
     from timetracker.ui_strip import StripCallbacks, TimerStrip
@@ -135,89 +129,50 @@ def run_timer(issue_key):
     if service is None:
         return 1
 
-    issue = service.lookup(issue_key)
-    if issue is None:
-        ui_notice.show("No such issue",
-                       f"Couldn't find {issue_key} in Jira.", theme=theme)
-        return 1
-
     store = Store()
     root = tk.Tk()
     root.withdraw()
 
-    # One event loop for both windows. `open` holds the day window if it has
-    # been opened, so stopping the timer can refresh it in place rather than
-    # tearing everything down and building it again — which looked like the
-    # window closing and reopening.
-    session = {"toplevel": None, "day": None, "timing": True}
-
-    def running_state():
-        return strip.state if session["timing"] else None
-
-    def show_day():
-        """Open the day window, or bring the existing one forward."""
-        if session["toplevel"] is not None and session["toplevel"].winfo_exists():
-            session["toplevel"].deiconify()
-            session["toplevel"].lift()
-            session["toplevel"].focus_force()
-            return session["day"]
-
-        toplevel = tk.Toplevel(root)
-        session["toplevel"] = toplevel
-        session["day"] = _build_day_window(
-            toplevel, service, theme,
-            on_start_timer=lambda _issue: None,
-            # The strip is the authority while it runs, so ask it rather than
-            # re-reading the file it only writes every 30 seconds. A paused
-            # timer still reports its state: the figure freezes, which is what
-            # paused looks like, rather than the row vanishing.
-            on_running=running_state,
-        )
-        # Once the timer has stopped this is the only window left, so closing
-        # it has to end the run rather than leave an invisible root behind.
-        toplevel.bind("<Destroy>", lambda event: (
-            root.destroy() if not session["timing"]
-            and event.widget is toplevel else None
+    # One event loop for both windows, and one object owning when each of them
+    # exists. Those rules used to live in closures right here, where no test
+    # could reach them, and were wrong twice as a result. See session.py.
+    def begin(issue):
+        """Put the strip on screen for an issue, leaving windows alone."""
+        return session.start_timer(lambda parent: TimerStrip(
+            parent, issue, config,
+            StripCallbacks(
+                on_persist=store.save_timer,
+                on_stop=session.stop,
+                on_open_day=session.show_day,
+            ),
+            theme,
         ))
-        return session["day"]
 
-    def on_stop(piece):
-        session["timing"] = False
-        store.clear_timer()
-
-        day = session["day"] if (
-            session["toplevel"] is not None and session["toplevel"].winfo_exists()
-        ) else None
-
-        if day is not None:
-            # Fold the finished run into the record the window is already
-            # holding, so the window and the file stay the same thing.
-            dayview.add_segment(day.data.record, piece)
-            store.save_day(day.data.record)
-            day.data.running = None
-            day.refresh()
-            show_day()
-            return
-
-        record = store.load_day(date.today())
-        dayview.add_segment(record, piece)
-        store.save_day(record)
-        # Stopping is how a day gets closed out, so the window that closes it
-        # is what comes next.
-        show_day()
-
-    def on_open_day():
-        show_day()
-
-    strip = TimerStrip(
-        root, issue, config,
-        StripCallbacks(
-            on_persist=store.save_timer,
-            on_stop=on_stop,
-            on_open_day=on_open_day,
+    session = TimerSession(
+        root=root,
+        record=store.load_day(date.today()),
+        save_day=store.save_day,
+        clear_timer=store.clear_timer,
+        day_builder=lambda toplevel, on_running: _build_day_window(
+            toplevel, service, theme,
+            on_start_timer=begin,
+            # The strip is the authority while it runs, so ask it rather than
+            # re-reading the file it only writes every 30 seconds.
+            on_running=on_running,
         ),
-        theme,
     )
+
+    if open_with_timer:
+        issue = service.lookup(open_with_timer)
+        if issue is None:
+            ui_notice.show("No such issue",
+                           f"Couldn't find {open_with_timer} in Jira.",
+                           theme=theme)
+            return 1
+        begin(issue)
+    else:
+        session.show_day()
+
     root.mainloop()
     return 0
 
