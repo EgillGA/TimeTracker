@@ -13,6 +13,7 @@ from timetracker.dayview import (
     fill_remaining,
     internal_rows,
     mark_submitted,
+    project_rows,
     remove_entry,
     set_hours,
     suggestion_rows,
@@ -67,25 +68,91 @@ class CombiningTheTwoJiraQueries(unittest.TestCase):
         self.assertEqual(candidate_issues([], []), [])
 
 
-class TheTwoTabsNeverShowTheSameIssue(unittest.TestCase):
-    """An internal issue that is also assigned would otherwise appear in both
-    tabs, and the same hour could be typed twice."""
+class ProjectsSection(unittest.TestCase):
+    """Everything assigned to me — the work I own, whatever project it is in."""
 
-    def test_internal_issues_are_kept_out_of_the_suggestions(self):
-        rows = suggestion_rows(
-            day(),
-            candidates=[issue("AP-7500", 1), issue("AI-1", 10)],
+    def test_lists_every_assigned_issue(self):
+        rows = project_rows(
+            day(), assigned=[issue("AP-7500", 1), issue("ADS-150", 2)],
+            internal=[],
+        )
+        self.assertEqual([r.issue_key for r in rows], ["AP-7500", "ADS-150"])
+
+    def test_issues_already_tracked_today_drop_out(self):
+        rows = project_rows(
+            day([entry("AP-7500", 3 * HOUR)]),
+            assigned=[issue("AP-7500", 1), issue("AP-7429", 2)],
+            internal=[],
+        )
+        self.assertEqual([r.issue_key for r in rows], ["AP-7429"])
+
+    def test_internal_issues_are_kept_out(self):
+        # They have their own tab; the same issue in two places invites
+        # typing the same hour twice.
+        rows = project_rows(
+            day(), assigned=[issue("AP-7500", 1), issue("AI-1", 10)],
             internal=[issue("AI-1", 10)],
         )
         self.assertEqual([r.issue_key for r in rows], ["AP-7500"])
 
-    def test_issues_already_on_the_day_are_not_suggested_again(self):
+
+class SuggestionsSection(unittest.TestCase):
+    """Recent activity — things I touched that I do not own."""
+
+    def test_recent_work_that_is_not_assigned_to_me(self):
         rows = suggestion_rows(
-            day([entry("AP-7500", 3 * HOUR)]),
-            candidates=[issue("AP-7500", 1), issue("AP-7429", 2)],
-            internal=[],
+            day(), recent=[issue("AP-9000", 9)],
+            assigned=[issue("AP-7500", 1)], internal=[],
         )
-        self.assertEqual([r.issue_key for r in rows], ["AP-7429"])
+        self.assertEqual([r.issue_key for r in rows], ["AP-9000"])
+
+    def test_issues_already_listed_under_projects_are_not_repeated(self):
+        rows = suggestion_rows(
+            day(), recent=[issue("AP-7500", 1), issue("AP-9000", 9)],
+            assigned=[issue("AP-7500", 1)], internal=[],
+        )
+        self.assertEqual([r.issue_key for r in rows], ["AP-9000"])
+
+    def test_issues_already_tracked_today_drop_out(self):
+        rows = suggestion_rows(
+            day([entry("AP-9000", HOUR)]), recent=[issue("AP-9000", 9)],
+            assigned=[], internal=[],
+        )
+        self.assertEqual(rows, [])
+
+    def test_internal_issues_are_kept_out(self):
+        rows = suggestion_rows(
+            day(), recent=[issue("AI-1", 10)], assigned=[],
+            internal=[issue("AI-1", 10)],
+        )
+        self.assertEqual(rows, [])
+
+
+class RemovedIssuesGoBackWhereTheyBelong(unittest.TestCase):
+    """Removing a tracked row must return it to the section it came from —
+    an issue assigned to me is a project, not a suggestion."""
+
+    def test_an_assigned_issue_returns_to_projects(self):
+        record = day([entry("AP-7500", HOUR)])
+        assigned = [issue("AP-7500", 1)]
+        record = remove_entry(record, "AP-7500")
+
+        self.assertEqual(
+            [r.issue_key for r in project_rows(record, assigned, [])],
+            ["AP-7500"],
+        )
+        self.assertEqual(suggestion_rows(record, [], assigned, []), [])
+
+    def test_a_merely_recent_issue_returns_to_suggestions(self):
+        record = day([entry("AP-9000", HOUR)])
+        recent = [issue("AP-9000", 9)]
+        record = remove_entry(record, "AP-9000")
+
+        self.assertEqual(project_rows(record, [], []), [])
+        self.assertEqual(
+            [r.issue_key for r in suggestion_rows(record, recent, [], [])],
+            ["AP-9000"],
+        )
 
 
 class TrackedRows(unittest.TestCase):
@@ -182,13 +249,6 @@ class RemovingARow(unittest.TestCase):
         record = day([entry("AP-1", HOUR)])
         record = remove_entry(record, "AP-999")
         self.assertEqual(len(record["entries"]), 1)
-
-    def test_a_removed_issue_returns_to_the_suggestions(self):
-        record = day([entry("AP-7500", HOUR)])
-        record = remove_entry(record, "AP-7500")
-
-        rows = suggestion_rows(record, [issue("AP-7500", 1)], [])
-        self.assertEqual([r.issue_key for r in rows], ["AP-7500"])
 
     def test_removal_is_case_insensitive(self):
         record = day([entry("AP-1", HOUR)])

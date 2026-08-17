@@ -33,7 +33,7 @@ class AppService:
         record = self.store.load_day(day)
         notes = list(self.store.warnings)
 
-        candidates, problem = self._candidates()
+        (assigned, recent), problem = self._candidates()
         if problem:
             notes.append(problem)
 
@@ -44,19 +44,25 @@ class AppService:
         return DayData(
             day=day,
             record=record,
-            candidates=candidates,
+            assigned=assigned,
+            recent=recent,
             internal=internal,
             target_seconds=int(self.config.hours_per_day * 3600),
             banner=" ".join(notes),
         )
 
     def _candidates(self):
+        """Assigned and recent are fetched separately and stay separate.
+
+        They drive two different sections of the window, and merging them
+        would lose the only thing that tells Projects from Suggestions.
+        """
         try:
             assigned = self.jira.search(self.config.jql["assigned"])
             recent = self.jira.search(self.config.jql["recent"])
         except ApiError as error:
-            return [], f"{error} Showing what is saved locally."
-        return dayview.candidate_issues(assigned, recent), ""
+            return ([], []), f"{error} Showing what is saved locally."
+        return (assigned, recent), ""
 
     def _internal(self):
         try:

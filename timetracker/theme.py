@@ -59,7 +59,7 @@ SPACE = {"xs": 4, "sm": 8, "md": 16, "lg": 20, "xl": 32}
 METRICS = {
     "row_height": 44,
     "window_padding": SPACE["lg"],
-    "day_window": (720, 560),
+    "day_window": (720, 700),
     "week_window": (760, 520),
     "strip_resting": (260, 36),
     "strip_hover": (300, 44),

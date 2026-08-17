@@ -18,7 +18,7 @@ from timetracker.ui_day import INTERNAL, MY_WORK, DayCallbacks, DayData, DayWind
 
 HOUR = 3600
 
-CANDIDATES = [
+ASSIGNED = [
     {"key": "AP-7500", "id": 7500, "summary": "CRA252159 - 767 - ANG - LOPA change"},
     {"key": "AP-7429", "id": 7429, "summary": "MI252159-1 - PSU Drawing"},
 ]
@@ -83,7 +83,7 @@ class DayWindowSmoke(unittest.TestCase):
     def build(self, data=None, **callbacks):
         data = data or DayData(
             day=date(2026, 8, 17), record=record(),
-            candidates=CANDIDATES, internal=INTERNAL_ISSUES,
+            assigned=ASSIGNED, internal=INTERNAL_ISSUES,
             target_seconds=8 * HOUR,
         )
         defaults = {
@@ -115,7 +115,7 @@ class DayWindowSmoke(unittest.TestCase):
                  "seconds": HOUR, "source": "manual", "confirmed": True,
                  "submitted": True, "tempo_worklog_id": 46580, "note": ""},
             ]),
-            candidates=CANDIDATES, internal=INTERNAL_ISSUES,
+            assigned=ASSIGNED, internal=INTERNAL_ISSUES,
         )
         self.build(data)
 
@@ -139,7 +139,7 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_typing_hours_updates_the_record(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
         self.type_into(window, "AP-7500", "1,5")
@@ -150,7 +150,7 @@ class DayWindowSmoke(unittest.TestCase):
     def test_typing_does_not_steal_focus_from_the_field(self):
         # Rebuilding rows on every keystroke would drop the caret mid-number.
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
         field = self.type_into(window, "AP-7500", "1,5")
@@ -159,7 +159,7 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_invalid_hours_do_not_reach_the_record(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
         self.type_into(window, "AP-7500", "all morning")
@@ -168,7 +168,7 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_invalid_hours_are_flagged_but_not_erased(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
         field = self.type_into(window, "AP-7500", "all morning")
@@ -178,7 +178,7 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_clearing_a_field_zeroes_the_row(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
 
         self.type_into(window, "AP-7500", "3")
@@ -193,7 +193,7 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_adding_from_the_internal_tab_returns_to_my_work(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=[], internal=INTERNAL_ISSUES)
+                       assigned=[], internal=INTERNAL_ISSUES)
         window = self.build(data)
         window.show_tab(INTERNAL)
         self.root.update()
@@ -242,10 +242,10 @@ class DayWindowSmoke(unittest.TestCase):
 
     def test_starting_a_timer_reports_the_issue(self):
         data = DayData(day=date(2026, 8, 17), record=record(),
-                       candidates=CANDIDATES, internal=[])
+                       assigned=ASSIGNED, internal=[])
         window = self.build(data)
         window._start_timer(
-            dayview.suggestion_rows(data.record, CANDIDATES, [])[0]
+            dayview.project_rows(data.record, ASSIGNED, [])[0]
         )
         self.assertEqual(self.started[0]["key"], "AP-7500")
 
@@ -309,6 +309,51 @@ class DayWindowSmoke(unittest.TestCase):
             if isinstance(child, tk.Scrollbar)
         ]
         self.assertEqual(scrollbars, [])
+
+    def test_a_long_section_collapses_and_says_how_many_are_hidden(self):
+        # Without a scrollbar, a list that runs past the window bottom is
+        # invisible. The section has to admit it is holding rows back.
+        many = [{"key": f"AP-{n}", "id": n, "summary": f"issue {n}"}
+                for n in range(16)]
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    assigned=many))
+
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertIn("+ 11 more", labels)
+
+    def test_expanding_a_section_shows_the_rest(self):
+        many = [{"key": f"AP-{n}", "id": n, "summary": f"issue {n}"}
+                for n in range(16)]
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    assigned=many))
+        window._toggle_section("Projects")
+        self.root.update()
+
+        self.assertEqual(len(window._fields), 16)
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertIn("show fewer", labels)
+
+    def test_a_short_section_has_no_toggle(self):
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    assigned=ASSIGNED))
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertNotIn("show fewer", labels)
+        self.assertFalse([t for t in labels if t.startswith("+ ")])
+
+    def test_projects_and_suggestions_are_separate_sections(self):
+        window = self.build(DayData(
+            day=date(2026, 8, 17), record=record(),
+            assigned=[{"key": "AP-7500", "id": 7500, "summary": "LOPA"}],
+            recent=[{"key": "AP-9000", "id": 9000, "summary": "someone else's"}],
+        ))
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+
+        self.assertIn("PROJECTS", labels)
+        self.assertIn("SUGGESTIONS", labels)
 
     def test_ctrl_tab_switches_tabs(self):
         window = self.build()

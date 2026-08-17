@@ -110,7 +110,9 @@ class ServiceTestCase(unittest.TestCase):
 
 
 class LoadingTheDay(ServiceTestCase):
-    def test_combines_assigned_and_recent_into_candidates(self):
+    def test_assigned_and_recent_are_kept_apart(self):
+        # They feed two different sections; merging them would lose the only
+        # thing that tells Projects from Suggestions.
         jira = FakeJira({
             "assignee = currentUser() AND statusCategory": [
                 {"key": "AP-7500", "id": 7500, "summary": "LOPA"}],
@@ -119,8 +121,8 @@ class LoadingTheDay(ServiceTestCase):
         })
         data = self.service(jira).load_day(TODAY)
 
-        self.assertEqual([i["key"] for i in data.candidates],
-                         ["AP-7500", "AP-7429"])
+        self.assertEqual([i["key"] for i in data.assigned], ["AP-7500"])
+        self.assertEqual([i["key"] for i in data.recent], ["AP-7429"])
 
     def test_reads_the_internal_project(self):
         jira = FakeJira({"project = AI": [

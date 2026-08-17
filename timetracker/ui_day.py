@@ -30,6 +30,12 @@ class DayCallbacks:
 
 MY_WORK, INTERNAL = "My work", "Internal"
 
+# How many rows a section shows before collapsing the rest. Five each, so
+# Projects and Suggestions together fit the window without scrolling. Tracked
+# rows do not push this over: an issue moves out of Projects as soon as it is
+# tracked, so the total stays roughly constant through the day.
+COLLAPSED_ROWS = 5
+
 
 class DayWindow:
     def __init__(self, master, data, callbacks=None, theme=None):
@@ -41,6 +47,7 @@ class DayWindow:
         )
         self.tab = MY_WORK
         self.row_status = {}
+        self.expanded = {}
         self._fields = {}
 
         master.title(f"TimeTracker — {data.day:%A %d %B}")
@@ -242,18 +249,56 @@ class DayWindow:
                 for row in tracked:
                     self._row(row)
 
-            suggestions = dayview.suggestion_rows(
-                self.data.record, self.data.candidates, self.data.internal
+            self._collapsible(
+                "Projects",
+                dayview.project_rows(self.data.record, self.data.assigned,
+                                     self.data.internal),
             )
-            if suggestions:
-                self._section("Suggestions")
-                for row in suggestions:
-                    self._row(row)
-
+            self._collapsible(
+                "Suggestions",
+                dayview.suggestion_rows(self.data.record, self.data.recent,
+                                        self.data.assigned, self.data.internal),
+            )
             self._add_by_key()
         else:
             for row in dayview.internal_rows(self.data.record, self.data.internal):
                 self._row(row)
+
+    def _collapsible(self, title, rows):
+        """A section that shows its first few rows and hides the tail.
+
+        Without a scrollbar there is nothing to hint that a long list
+        continues below the window, so the list says so itself.
+        """
+        if not rows:
+            return
+
+        self._section(title)
+        expanded = self.expanded.get(title, False)
+        visible = rows if expanded else rows[:COLLAPSED_ROWS]
+
+        for row in visible:
+            self._row(row)
+
+        hidden = len(rows) - len(visible)
+        if hidden <= 0 and not expanded:
+            return
+
+        label = f"+ {hidden} more" if hidden > 0 else "show fewer"
+        toggle = tk.Label(self.list_frame, text=label, bg=self.theme["bg"],
+                          fg=self.theme["text_muted"],
+                          font=self.theme.font("small"), anchor="w",
+                          cursor="hand2", pady=self.theme.space["sm"])
+        toggle.pack(fill="x", padx=(self.theme.space["md"], 0))
+        toggle.bind("<Button-1>", lambda _e, t=title: self._toggle_section(t))
+        toggle.bind("<Enter>", lambda _e, w=toggle: w.configure(
+            fg=self.theme["text"]))
+        toggle.bind("<Leave>", lambda _e, w=toggle: w.configure(
+            fg=self.theme["text_muted"]))
+
+    def _toggle_section(self, title):
+        self.expanded[title] = not self.expanded.get(title, False)
+        self.refresh()
 
     def _section(self, title):
         label = tk.Label(
@@ -543,12 +588,23 @@ def preview(theme_name="dark"):
         },
         # Shaped like the real thing: both AP and ADS come back from
         # `assignee = currentUser()`, which has no project filter.
-        candidates=[
+        assigned=[
             {"key": "AP-7492", "id": 7492,
              "summary": "CRA252158 - EEL change A320 MSN6319"},
             {"key": "ADS-150", "id": 150, "summary": "OVHD Bin Divider"},
             {"key": "AP-7455", "id": 7455, "summary": "Wiring diagram update"},
             {"key": "AP-7390", "id": 7390, "summary": "Update EWIS report"},
+            {"key": "AP-7325", "id": 7325, "summary": "Modpack Summary Pumba V2"},
+            {"key": "AP-7076", "id": 7076,
+             "summary": "Noise certificate STC development"},
+            {"key": "AP-7164", "id": 7164, "summary": "TF-FMS Tail Livery Logo"},
+            {"key": "AP-6047", "id": 6047,
+             "summary": "Icelandair B737 update of ICA documents"},
+        ],
+        recent=[
+            {"key": "AP-6852", "id": 6852,
+             "summary": "LHG - Umlaut installation in TF-FMS"},
+            {"key": "AP-7239", "id": 7239, "summary": "AHK A330P2F ELT STC"},
         ],
         internal=[
             {"key": "AI-1", "id": 1, "summary": "INTERNAL - WORK"},

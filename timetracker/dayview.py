@@ -17,11 +17,18 @@ class DayData:
 
     Defined here rather than in ui_day so that the service which assembles it
     never has to import tkinter.
+
+    `assigned` and `recent` stay separate rather than being merged: they are
+    different kinds of thing. Assigned issues are work you own and appear
+    under Projects; recent ones are work you merely touched, and appear under
+    Suggestions. Merging them loses the distinction, and a row put back after
+    being removed then lands in the wrong place.
     """
 
     day: date
     record: dict
-    candidates: list = field(default_factory=list)
+    assigned: list = field(default_factory=list)
+    recent: list = field(default_factory=list)
     internal: list = field(default_factory=list)
     target_seconds: int = 8 * 3600
     banner: str = ""
@@ -82,20 +89,35 @@ def tracked_rows(record):
     return [_row_from_entry(entry) for entry in record["entries"]]
 
 
-def suggestion_rows(record, candidates, internal):
-    """Issues worth offering that are not already on the day.
-
-    Internal issues are excluded here because they have their own tab — the
-    same issue in both places invites typing the same hour twice.
-    """
-    internal_keys = {issue["key"].upper() for issue in internal}
+def _offerable(record, issues, excluded_keys):
     return [
         Row(issue_key=issue["key"], issue_id=issue["id"],
             summary=issue.get("summary", ""))
-        for issue in candidates
-        if issue["key"].upper() not in internal_keys
+        for issue in issues
+        if issue["key"].upper() not in excluded_keys
         and _entry_for(record, issue["key"]) is None
     ]
+
+
+def project_rows(record, assigned, internal):
+    """Work you own: every issue assigned to you, in any project.
+
+    Internal issues are excluded because they have their own tab — the same
+    issue in two places invites typing the same hour twice.
+    """
+    return _offerable(record, assigned,
+                      {issue["key"].upper() for issue in internal})
+
+
+def suggestion_rows(record, recent, assigned, internal):
+    """Work you touched but do not own.
+
+    Anything already under Projects is excluded, so the two sections never
+    show the same issue and a removed row returns to exactly one of them.
+    """
+    excluded = {issue["key"].upper() for issue in internal}
+    excluded |= {issue["key"].upper() for issue in assigned}
+    return _offerable(record, recent, excluded)
 
 
 def internal_rows(record, internal):
