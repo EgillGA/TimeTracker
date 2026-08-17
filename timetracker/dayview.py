@@ -7,7 +7,24 @@ Day records are treated as mutable and returned for chaining; the window holds
 exactly one and writes it to disk after every change.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
+
+
+@dataclass
+class DayData:
+    """Everything one day's window needs.
+
+    Defined here rather than in ui_day so that the service which assembles it
+    never has to import tkinter.
+    """
+
+    day: date
+    record: dict
+    candidates: list = field(default_factory=list)
+    internal: list = field(default_factory=list)
+    target_seconds: int = 8 * 3600
+    banner: str = ""
 
 
 @dataclass(frozen=True)

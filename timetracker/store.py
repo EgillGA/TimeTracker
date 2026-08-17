@@ -99,6 +99,20 @@ class Store:
     def clear_timer(self):
         self.timer_path().unlink(missing_ok=True)
 
+    # -- internal issue cache ----------------------------------------------
+
+    def load_internal_cache(self):
+        """The last internal issue list that loaded successfully.
+
+        Keys and titles for admin work change about once a year, so a stale
+        copy is far better than an empty tab when the network is down.
+        """
+        cached = self._read_json(self.root / "internal_cache.json")
+        return cached if isinstance(cached, list) else []
+
+    def save_internal_cache(self, issues):
+        self._write_json(self.root / "internal_cache.json", issues)
+
     # -- file handling ------------------------------------------------------
 
     def _read_json(self, path):

@@ -14,18 +14,9 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from timetracker import dayview
+from timetracker.dayview import DayData
 from timetracker.duration import InvalidDuration, format_hm, parse_hours
 from timetracker.theme import Theme
-
-
-@dataclass
-class DayData:
-    day: date
-    record: dict
-    candidates: list = field(default_factory=list)
-    internal: list = field(default_factory=list)
-    target_seconds: int = 8 * 3600
-    banner: str = ""
 
 
 @dataclass
