@@ -118,6 +118,19 @@ py uninstall.py            remove it
 Removal is documented as prominently as installation on purpose: an automation
 you cannot easily switch off is one that gets killed crudely instead.
 
+### Pinning it to the taskbar
+
+`py install.py` also adds a **TimeTracker** shortcut to the Start Menu. Find
+it there, right-click, and choose **Pin to taskbar**.
+
+This exists because the scheduled task runs `wscript.exe` on a `.vbs`
+launcher, and a running window with no shortcut behind it is either unable to
+be pinned at all, or gets pinned as a bare `pyw.exe` with none of the
+arguments that make it TimeTracker. The Start Menu shortcut carries the same
+application id as the running window, so pinning from there does the right
+thing. `py uninstall.py` removes it again — unpin first if you had pinned it,
+since removing the shortcut leaves a pin with nothing behind it.
+
 ## Tests
 
 ```
@@ -143,6 +156,7 @@ timetracker/
   ui_*.py      the windows
   icon.py      the window icon
   win.py       taskbar identity and dark title bar
+  shortcut.py  the Start Menu shortcut install.py creates, so it can be pinned
   session.py   which page is up, and what stopping a timer means
   ui_shell.py  one window, several pages
 assets/        icon at every size Windows asks for
