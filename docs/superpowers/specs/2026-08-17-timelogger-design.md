@@ -41,7 +41,7 @@ implementation:
 | Excluded | Why |
 |---|---|
 | Idle / screen-lock auto-pause | A timer that pauses itself through a long meeting produces confidently wrong worklogs. The hourly check-in covers the same ground honestly. |
-| Reading required hours from Tempo's work schedule | Flat 8 h/day is correct for nearly every day. Holidays will show as a gap and be ignored. Revisit only if that proves annoying. |
+| Reading required hours from Tempo's work schedule | Flat 8 h/day is simply correct here. Verified 2026-08-17: the internal project carries `AI-3 INTERNAL - HOLIDAY`, so a holiday is logged like any other work and the day reaches 8 h on its own. No gap ever appears, and there is nothing for a work schedule to tell us. |
 | Editing or deleting existing Tempo worklogs | Read and create only. Corrections happen in Tempo's own UI, which already does this well. |
 | Multi-user support, other trackers, mobile | Single user, single machine. |
 | Auto-starting the timer based on activity | Guessing which issue someone is on is worse than asking. |
@@ -589,15 +589,27 @@ exists still earns its keep.
 
 ## 14. Open items
 
-- **Tempo required attributes.** Some Tempo configurations require an account
-  or work attribute on every worklog. Whether this site does is unknown until
-  the step 1 smoke test. If it does, the day window gains one dropdown per row
-  and the spec is amended.
-- **Git.** This directory is not a repository. Worth initialising before
-  implementation so the build order above is reviewable step by step —
-  to be confirmed.
+Resolved by the live smoke test on 2026-08-17:
+
+- **Tempo required attributes — none.** Worklog 46580 was created against AI-2
+  with only issue, seconds, date, author and description. No account or work
+  attribute was demanded, so rows need no dropdown and section 9 stands as
+  drawn.
+- **Search endpoint — the enhanced one works.** `/rest/api/3/search/jql`
+  responds on this site; the legacy fallback in `jira.py` is insurance, not
+  the normal path.
+- **Internal project — confirmed as `AI`**, six open issues, including
+  `AI-1 INTERNAL - WORK`, `AI-2 INTERNAL - OTHER` and
+  `AI-3 INTERNAL - HOLIDAY`.
+- **Git — initialised**, remote `github.com/EgillGA/TimeTracker`.
+
+Still open:
+
 - **Theme default.** Specified as dark. Both palettes are defined; if light
   reads better in the office it is a one-line config change.
+- **List length.** The assigned and recent queries returned nine issues each
+  with heavy overlap. If that grows past roughly twenty after dedup, the day
+  window needs a filter box; below that it does not.
 
 ## 15. Security
 
