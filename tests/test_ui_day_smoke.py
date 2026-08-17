@@ -482,6 +482,39 @@ class DayWindowSmoke(unittest.TestCase):
                   if isinstance(w, tk.Label)]
         self.assertEqual([t for t in labels if t.startswith("● ")], [])
 
+    def test_a_stopped_run_appears_in_the_same_window(self):
+        """Stopping the timer must not need a new window.
+
+        The old code destroyed the root and built a fresh day window, which
+        read as the window closing and reopening. Folding the finished run
+        into the record the window already holds and refreshing keeps it."""
+        live = {"state": self.running_state(minutes=90)}
+        data = DayData(day=date(2026, 8, 17), record=record(),
+                       assigned=ASSIGNED)
+        window = self.build(data, on_running=lambda: live["state"])
+        toplevel_before = window.master
+
+        # What on_stop does: fold the segment in, drop the timer, refresh.
+        dayview.add_segment(data.record, {
+            "issue_key": "AP-7500", "issue_id": 7500, "summary": "LOPA change",
+            "seconds": 90 * 60, "start": "2026-08-17T09:00:00",
+            "end": "2026-08-17T10:30:00", "confirmed": True,
+        })
+        live["state"] = None
+        window.refresh()
+        self.root.update()
+
+        self.assertIs(window.master, toplevel_before,
+                      "the same window must still be the one on screen")
+        self.assertTrue(window.master.winfo_exists())
+        self.assertEqual(dayview.total_seconds(data.record), 90 * 60)
+        self.assertEqual(window._fields["AP-7500"].get(), "1:30")
+
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertEqual([t for t in labels if t.startswith("● ")], [],
+                         "the live figure should be gone")
+
     def test_no_running_timer_means_no_live_figure(self):
         window = self.build()
         labels = [w.cget("text") for w in _descendants(self.root)

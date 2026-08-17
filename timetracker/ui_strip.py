@@ -213,10 +213,18 @@ class TimerStrip:
     # -- the clock ----------------------------------------------------------
 
     def _schedule_tick(self):
-        self.window.after(TICK_MILLISECONDS, self._on_tick)
+        try:
+            self.window.after(TICK_MILLISECONDS, self._on_tick)
+        except tk.TclError:
+            pass
 
     def _on_tick(self):
-        self.tick(datetime.now())
+        # Stopping destroys this window while a tick is already queued. Let
+        # that last beat land on nothing rather than on dead widgets.
+        try:
+            self.tick(datetime.now())
+        except tk.TclError:
+            return
         self._schedule_tick()
 
     def tick(self, now):

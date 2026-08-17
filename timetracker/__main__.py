@@ -144,42 +144,70 @@ def run_timer(issue_key):
     store = Store()
     root = tk.Tk()
     root.withdraw()
-    open_windows = {}
 
-    def on_stop(piece):
-        record = store.load_day(date.today())
-        dayview.add_segment(record, piece)
-        store.save_day(record)
-        store.clear_timer()
-        root.destroy()
-        # Stopping is how a day gets closed out, so the window that closes it
-        # is what comes next.
-        open_day()
+    # One event loop for both windows. `open` holds the day window if it has
+    # been opened, so stopping the timer can refresh it in place rather than
+    # tearing everything down and building it again — which looked like the
+    # window closing and reopening.
+    session = {"toplevel": None, "day": None, "timing": True}
 
-    def on_open_day():
-        """Show the day alongside the running timer, without stopping it.
+    def running_state():
+        return strip.state if session["timing"] else None
 
-        Opening it as a child of the strip's root rather than a new Tk keeps
-        one event loop and lets the timer carry on ticking while you look.
-        """
-        existing = open_windows.get("day")
-        if existing is not None and existing.winfo_exists():
-            existing.deiconify()
-            existing.lift()
-            existing.focus_force()
-            return
+    def show_day():
+        """Open the day window, or bring the existing one forward."""
+        if session["toplevel"] is not None and session["toplevel"].winfo_exists():
+            session["toplevel"].deiconify()
+            session["toplevel"].lift()
+            session["toplevel"].focus_force()
+            return session["day"]
 
-        window = tk.Toplevel(root)
-        open_windows["day"] = window
-        _build_day_window(
-            window, service, theme,
+        toplevel = tk.Toplevel(root)
+        session["toplevel"] = toplevel
+        session["day"] = _build_day_window(
+            toplevel, service, theme,
             on_start_timer=lambda _issue: None,
             # The strip is the authority while it runs, so ask it rather than
             # re-reading the file it only writes every 30 seconds. A paused
             # timer still reports its state: the figure freezes, which is what
             # paused looks like, rather than the row vanishing.
-            on_running=lambda: strip.state,
+            on_running=running_state,
         )
+        # Once the timer has stopped this is the only window left, so closing
+        # it has to end the run rather than leave an invisible root behind.
+        toplevel.bind("<Destroy>", lambda event: (
+            root.destroy() if not session["timing"]
+            and event.widget is toplevel else None
+        ))
+        return session["day"]
+
+    def on_stop(piece):
+        session["timing"] = False
+        store.clear_timer()
+
+        day = session["day"] if (
+            session["toplevel"] is not None and session["toplevel"].winfo_exists()
+        ) else None
+
+        if day is not None:
+            # Fold the finished run into the record the window is already
+            # holding, so the window and the file stay the same thing.
+            dayview.add_segment(day.data.record, piece)
+            store.save_day(day.data.record)
+            day.data.running = None
+            day.refresh()
+            show_day()
+            return
+
+        record = store.load_day(date.today())
+        dayview.add_segment(record, piece)
+        store.save_day(record)
+        # Stopping is how a day gets closed out, so the window that closes it
+        # is what comes next.
+        show_day()
+
+    def on_open_day():
+        show_day()
 
     strip = TimerStrip(
         root, issue, config,
