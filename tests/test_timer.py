@@ -13,6 +13,7 @@ from timetracker.timer import (
     elapsed_seconds,
     heartbeat,
     is_confirmed,
+    is_live,
     is_paused,
     needs_checkin,
     pause,
@@ -147,6 +148,41 @@ class Heartbeat(unittest.TestCase):
     def test_records_the_last_moment_work_was_demonstrable(self):
         state = heartbeat(start(ISSUE, NINE), at(30))
         self.assertEqual(state["last_heartbeat"], at(30).isoformat())
+
+
+class TellingALiveTimerFromAnAbandonedOne(unittest.TestCase):
+    """The file on disk cannot say by itself whether a timer is ticking in
+    another window or was left behind by a crash — and the difference decides
+    whether its time is displayed or silently recovered. A fresh heartbeat is
+    the only honest evidence."""
+
+    def test_a_fresh_heartbeat_means_it_is_running(self):
+        state = heartbeat(start(ISSUE, NINE), at(30))
+        self.assertTrue(is_live(state, at(30), heartbeat_seconds=30))
+
+    def test_a_beat_or_two_missed_is_still_running(self):
+        # A busy machine skipping a beat must not look like a crash.
+        state = heartbeat(start(ISSUE, NINE), at(30))
+        moment = at(30) + timedelta(seconds=60)
+        self.assertTrue(is_live(state, moment, heartbeat_seconds=30))
+
+    def test_a_long_silence_means_it_died(self):
+        state = heartbeat(start(ISSUE, NINE), at(30))
+        self.assertFalse(is_live(state, at(90), heartbeat_seconds=30))
+
+    def test_a_heartbeat_in_the_future_is_not_trusted(self):
+        # A clock change can produce this; treating it as live would hide the
+        # time until the clock caught up.
+        state = heartbeat(start(ISSUE, NINE), at(60))
+        self.assertFalse(is_live(state, at(30), heartbeat_seconds=30))
+
+    def test_a_state_with_no_heartbeat_falls_back_to_the_start(self):
+        state = {"started_at": NINE.isoformat()}
+        self.assertTrue(is_live(state, NINE, heartbeat_seconds=30))
+        self.assertFalse(is_live(state, at(30), heartbeat_seconds=30))
+
+    def test_a_state_with_no_times_at_all_is_not_live(self):
+        self.assertFalse(is_live({}, NINE, heartbeat_seconds=30))
 
 
 class StoppingProducesASegment(unittest.TestCase):

@@ -10,7 +10,7 @@ Skipped automatically where there is no display.
 
 import tkinter as tk
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from timetracker import dayview
 from timetracker.theme import Theme
@@ -398,6 +398,61 @@ class DayWindowSmoke(unittest.TestCase):
         labels = [w.cget("text") for w in _descendants(self.root)
                   if isinstance(w, tk.Label)]
         self.assertNotIn("✕", labels)
+
+    def running_state(self, minutes=42):
+        started = datetime.now() - timedelta(minutes=minutes)
+        return {"issue_key": "AP-7500", "issue_id": 7500,
+                "summary": "LOPA change",
+                "started_at": started.isoformat(),
+                "last_heartbeat": started.isoformat(),
+                "last_confirmed_at": started.isoformat(),
+                "paused_total_seconds": 0, "paused_at": None}
+
+    def test_a_running_timer_shows_in_tracked_today(self):
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    assigned=ASSIGNED,
+                                    running=self.running_state()))
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+
+        self.assertIn("TRACKED TODAY", labels)
+        self.assertIn("AP-7500", labels)
+        self.assertTrue([t for t in labels if t.startswith("● 0:42")])
+
+    def test_running_time_counts_toward_the_header_total(self):
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    running=self.running_state(minutes=90)))
+        self.assertEqual(window.total_label.cget("text"), "1:30 of 8:00")
+
+    def test_running_time_is_not_offered_for_submission(self):
+        # It is not in the record and cannot be sent until the timer stops.
+        data = DayData(day=date(2026, 8, 17), record=record(),
+                       running=self.running_state(minutes=90))
+        window = self.build(data)
+
+        self.assertEqual(window.submit_button.cget("text"), "Submit")
+        self.assertEqual(dayview.entries_to_submit(data.record), [])
+
+    def test_the_running_issue_is_not_also_offered_under_projects(self):
+        window = self.build(DayData(
+            day=date(2026, 8, 17), record=record(),
+            assigned=[{"key": "AP-7500", "id": 7500, "summary": "LOPA change"}],
+            running=self.running_state(),
+        ))
+        keys = [w.cget("text") for w in _descendants(self.root)
+                if isinstance(w, tk.Label) and w.cget("text") == "AP-7500"]
+        self.assertEqual(len(keys), 1)
+
+    def test_no_running_timer_means_no_live_figure(self):
+        window = self.build()
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertEqual([t for t in labels if t.startswith("● ")], [])
+
+    def test_the_footer_has_equal_padding_above_and_below(self):
+        window = self.build()
+        info = window.footer.pack_info()
+        self.assertEqual(str(info["pady"]), str(window.theme.space["lg"]))
 
     def test_there_is_no_scrollbar(self):
         window = self.build()

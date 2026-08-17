@@ -11,11 +11,18 @@ attempts to colour it and the result is a window that looks half-themed.
 import tkinter as tk
 import tkinter.font as tkfont
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
+
+from timetracker import timer
 
 from timetracker import dayview
 from timetracker.dayview import DayData
-from timetracker.duration import InvalidDuration, format_hm, parse_hours
+from timetracker.duration import (
+    InvalidDuration,
+    format_hhmmss,
+    format_hm,
+    parse_hours,
+)
 from timetracker.theme import Theme
 
 
@@ -50,6 +57,7 @@ class DayWindow:
         self.expanded = {}
         self.suggestion_count = getattr(data, "suggestion_count", 5)
         self._fields = {}
+        self._running_label = None
 
         master.title(f"TimeTracker — {data.day:%A %d %B}")
         master.configure(bg=self.theme["bg"])
@@ -60,6 +68,7 @@ class DayWindow:
         self._build()
         self._bind_keys()
         self.refresh()
+        self._tick_running()
 
     # -- construction -------------------------------------------------------
 
@@ -144,7 +153,9 @@ class DayWindow:
 
     def _build_footer(self, pad):
         self.footer = tk.Frame(self.master, bg=self.theme["bg"])
-        self.footer.pack(fill="x", padx=pad, pady=(0, pad))
+        # Equal padding above and below, so the buttons sit in the middle of
+        # their own space rather than crowding the list above them.
+        self.footer.pack(fill="x", padx=pad, pady=pad)
 
         self.unaccounted_label = tk.Label(
             self.footer, bg=self.theme["bg"], fg=self.theme["text_muted"],
@@ -192,7 +203,10 @@ class DayWindow:
 
     def refresh(self):
         record, target = self.data.record, self.data.target_seconds
-        total = dayview.total_seconds(record)
+        # Running time is included so the header cannot contradict the strip,
+        # but it stays out of the Submit figure: it is not in the record yet
+        # and cannot be sent until the timer stops.
+        total = dayview.total_seconds(record) + self._running_seconds()
 
         self.total_label.configure(
             text=f"{format_hm(total)} of {format_hm(target)}",
@@ -244,25 +258,28 @@ class DayWindow:
         self._fields.clear()
 
         if self.tab == MY_WORK:
-            tracked = dayview.tracked_rows(self.data.record)
+            tracked = dayview.tracked_rows(self.data.record,
+                                           running=self.running_row())
             if tracked:
                 self._section("Tracked today")
                 for row in tracked:
                     self._row(row)
 
+            running = self.running_row()
             self._collapsible(
                 "Projects",
                 dayview.project_rows(self.data.record, self.data.assigned,
-                                     self.data.internal),
+                                     self.data.internal, running),
             )
             # Suggestions stay shut unless asked for. They are a fallback for
             # work that is not assigned to you, and an open list of them
             # buries the Projects you actually came here for.
             self._collapsible(
                 "Suggestions",
-                dayview.suggestion_rows(self.data.record, self.data.recent,
-                                        self.data.assigned,
-                                        self.data.internal)[:self.suggestion_count],
+                dayview.suggestion_rows(
+                    self.data.record, self.data.recent, self.data.assigned,
+                    self.data.internal, running,
+                )[:self.suggestion_count],
                 closed_by_default=True,
             )
             self._add_by_key()
@@ -416,6 +433,17 @@ class DayWindow:
                 side="right", padx=(0, self.theme.space["sm"]))
 
     def _badges(self, frame, row):
+        if row.is_running:
+            # The live figure, in the same monospaced face as the strip so the
+            # two read as the same number rather than two opinions.
+            label = tk.Label(
+                frame, text=f"● {format_hhmmss(row.running_seconds)}",
+                bg=self.theme["surface"], fg=self.theme["accent"],
+                font=self.theme.font("timer"),
+            )
+            label.pack(side="right", padx=(0, self.theme.space["sm"]))
+            self._running_label = label
+
         for text, color, tip in (
             ("⏱", self.theme["text_muted"], row.from_timer),
             ("⚠", self.theme["warn"], row.unconfirmed),
@@ -479,6 +507,46 @@ class DayWindow:
         entry.bind("<Return>", lambda _e, w=entry: self._add_typed_key(w))
 
     # -- events -------------------------------------------------------------
+
+    def running_row(self):
+        """The live timer as `{issue_key, issue_id, summary, seconds}`, or None.
+
+        Elapsed is computed from the timer's own start time rather than the
+        last figure it wrote to disk, so the number here matches the strip
+        even though the strip only persists every half minute.
+        """
+        state = self.data.running
+        if not state:
+            return None
+
+        return {
+            "issue_key": state["issue_key"],
+            "issue_id": state.get("issue_id", 0),
+            "summary": state.get("summary", ""),
+            "seconds": timer.elapsed_seconds(state, datetime.now()),
+        }
+
+    def _running_seconds(self):
+        row = self.running_row()
+        return row["seconds"] if row else 0
+
+    def _tick_running(self):
+        """Keep the live figure moving without rebuilding the list."""
+        if self.data.running:
+            row = self.running_row()
+            if self._running_label is not None:
+                try:
+                    self._running_label.configure(
+                        text=f"● {format_hhmmss(row['seconds'])}"
+                    )
+                except tk.TclError:
+                    self._running_label = None
+            self._refresh_totals_only()
+
+        try:
+            self.master.after(1000, self._tick_running)
+        except tk.TclError:
+            pass
 
     def show_tab(self, name):
         self.tab = name
@@ -583,7 +651,10 @@ class DayWindow:
         """Update the numbers without rebuilding rows — rebuilding on every
         keystroke would steal focus from the field being typed in."""
         record, target = self.data.record, self.data.target_seconds
-        total = dayview.total_seconds(record)
+        # Running time is included so the header cannot contradict the strip,
+        # but it stays out of the Submit figure: it is not in the record yet
+        # and cannot be sent until the timer stops.
+        total = dayview.total_seconds(record) + self._running_seconds()
         self.total_label.configure(
             text=f"{format_hm(total)} of {format_hm(target)}",
             fg=self.theme.status_color(complete=total >= target),

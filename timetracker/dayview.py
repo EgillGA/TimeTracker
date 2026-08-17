@@ -32,6 +32,7 @@ class DayData:
     internal: list = field(default_factory=list)
     target_seconds: int = 8 * 3600
     suggestion_count: int = 5
+    running: dict = None
     banner: str = ""
 
 
@@ -42,6 +43,8 @@ class Row:
     summary: str
     seconds: int = 0
     logged_seconds: int = 0
+    running_seconds: int = 0
+    is_running: bool = False
     from_timer: bool = False
     unconfirmed: bool = False
     submitted: bool = False
@@ -96,13 +99,20 @@ def _row_from_entry(entry):
     )
 
 
-def tracked_rows(record):
+def tracked_rows(record, running=None):
     """Everything on today, one row per issue, in the order it was added.
 
     An issue can hold two entries — hours already in Tempo, and more hours
     still pending. They are one thing you worked on, so they share a row: the
     logged part shown as text, the pending part in a box that still takes
     input. Two rows for one issue reads like a bug.
+
+    `running` is the live timer, if one is going. It appears as a row even
+    when the issue is otherwise untouched, because time being counted right
+    now is the most relevant thing on the screen — and a day total that
+    contradicts the strip in the corner is worse than no total at all. Its
+    seconds stay separate from the row's own: they are not in the record and
+    cannot be submitted until the timer stops.
     """
     rows = {}
     order = []
@@ -138,6 +148,26 @@ def tracked_rows(record):
             has_pending=row.has_pending or not submitted,
         )
 
+    if running:
+        key = running["issue_key"].upper()
+        if key in rows:
+            rows[key] = replace(rows[key],
+                                running_seconds=running["seconds"],
+                                is_running=True)
+        else:
+            # Not otherwise on the day: put it at the top, since it is the one
+            # thing on this list that is still happening.
+            order.insert(0, key)
+            rows[key] = Row(
+                issue_key=running["issue_key"],
+                issue_id=running.get("issue_id", 0),
+                summary=running.get("summary", ""),
+                running_seconds=running["seconds"],
+                is_running=True,
+                from_timer=True,
+                on_day=True,
+            )
+
     return [rows[key] for key in order]
 
 
@@ -157,17 +187,23 @@ def _offerable(record, issues, excluded_keys):
     ]
 
 
-def project_rows(record, assigned, internal):
+def _running_key(running):
+    """The running issue is already shown in Tracked today, so it is never
+    offered again — even though it has no entry in the record yet."""
+    return {running["issue_key"].upper()} if running else set()
+
+
+def project_rows(record, assigned, internal, running=None):
     """Work you own: every issue assigned to you, in any project.
 
     Internal issues are excluded because they have their own tab — the same
     issue in two places invites typing the same hour twice.
     """
-    return _offerable(record, assigned,
-                      {issue["key"].upper() for issue in internal})
+    excluded = {issue["key"].upper() for issue in internal}
+    return _offerable(record, assigned, excluded | _running_key(running))
 
 
-def suggestion_rows(record, recent, assigned, internal):
+def suggestion_rows(record, recent, assigned, internal, running=None):
     """Work you touched but do not own.
 
     Anything already under Projects is excluded, so the two sections never
@@ -175,7 +211,7 @@ def suggestion_rows(record, recent, assigned, internal):
     """
     excluded = {issue["key"].upper() for issue in internal}
     excluded |= {issue["key"].upper() for issue in assigned}
-    return _offerable(record, recent, excluded)
+    return _offerable(record, recent, excluded | _running_key(running))
 
 
 def internal_rows(record, internal):

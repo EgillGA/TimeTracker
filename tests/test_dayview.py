@@ -205,6 +205,60 @@ class ATrackedIssueIsOneRow(unittest.TestCase):
         self.assertTrue(tracked_rows(record)[0].unconfirmed)
 
 
+class ARunningTimerShowsInTrackedToday(unittest.TestCase):
+    """Time being counted right now is the most relevant thing on the screen.
+    Leaving it out means opening the day mid-afternoon and seeing a total that
+    contradicts the strip in the corner."""
+
+    def running(self, key="AP-7500", seconds=42 * 60):
+        return {"issue_key": key, "issue_id": 7500, "summary": "LOPA change",
+                "seconds": seconds}
+
+    def test_an_untracked_running_issue_gets_a_row(self):
+        rows = tracked_rows(day(), running=self.running())
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].issue_key, "AP-7500")
+        self.assertEqual(rows[0].running_seconds, 42 * 60)
+        self.assertTrue(rows[0].is_running)
+
+    def test_the_running_row_comes_first(self):
+        rows = tracked_rows(day([entry("AP-1", HOUR)]), running=self.running())
+        self.assertEqual([r.issue_key for r in rows], ["AP-7500", "AP-1"])
+
+    def test_a_running_issue_already_on_the_day_keeps_its_place(self):
+        record = day([entry("AP-1", HOUR), entry("AP-7500", 2 * HOUR)])
+        rows = tracked_rows(record, running=self.running())
+
+        self.assertEqual([r.issue_key for r in rows], ["AP-1", "AP-7500"])
+        self.assertEqual(rows[1].running_seconds, 42 * 60)
+        self.assertEqual(rows[1].seconds, 2 * HOUR)
+
+    def test_running_time_is_not_counted_as_recorded(self):
+        # It is not in the record yet and cannot be submitted, so the row's
+        # own hours stay separate from what is ticking.
+        rows = tracked_rows(day(), running=self.running())
+        self.assertEqual(rows[0].seconds, 0)
+
+    def test_running_time_stays_out_of_the_day_total(self):
+        record = day([entry("AP-1", HOUR)])
+        tracked_rows(record, running=self.running())
+        self.assertEqual(total_seconds(record), HOUR)
+
+    def test_no_running_timer_changes_nothing(self):
+        rows = tracked_rows(day([entry("AP-1", HOUR)]), running=None)
+        self.assertEqual(len(rows), 1)
+        self.assertFalse(rows[0].is_running)
+
+    def test_a_running_row_can_still_hold_logged_hours(self):
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=1)])
+        rows = tracked_rows(record, running=self.running())
+
+        self.assertEqual(rows[0].logged_seconds, 3 * HOUR)
+        self.assertEqual(rows[0].running_seconds, 42 * 60)
+
+
 class TrackedRows(unittest.TestCase):
     def test_entries_become_rows_with_their_hours(self):
         rows = tracked_rows(day([entry("AP-7500", 3 * HOUR)]))

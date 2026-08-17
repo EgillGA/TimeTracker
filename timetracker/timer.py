@@ -87,6 +87,28 @@ def confirm(state, now):
     return confirmed
 
 
+# How many missed heartbeats before a timer is presumed dead rather than
+# running. Three gives ample room for a busy machine to skip a beat.
+LIVENESS_HEARTBEATS = 3
+
+
+def is_live(state, now, heartbeat_seconds):
+    """Is this timer still being driven by a running process?
+
+    The file on disk cannot say by itself whether a timer is ticking in
+    another window or was left behind by a crash, and the difference decides
+    whether its time is displayed or recovered. A fresh heartbeat is the only
+    honest evidence: the strip writes one every `heartbeat_seconds`, so
+    silence for several of those means nobody is driving it.
+    """
+    beat = _read(state.get("last_heartbeat") or state.get("started_at"))
+    if beat is None:
+        return False
+
+    silence = (now - beat).total_seconds()
+    return 0 <= silence <= LIVENESS_HEARTBEATS * heartbeat_seconds
+
+
 def needs_checkin(state, now, checkin_minutes):
     """Is it time to ask whether this is still what you are doing?
 

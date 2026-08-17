@@ -7,9 +7,9 @@ suggestions are missing — a tool that refuses to start because a server is
 down is worse than no tool, because it also costs you the habit.
 """
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
-from timetracker import dayview
+from timetracker import dayview, timer
 from timetracker.config import load_config, load_credentials
 from timetracker.dayview import DayData
 from timetracker.duration import format_clock
@@ -32,7 +32,14 @@ class AppService:
     def load_day(self, day=None):
         day = day or date.today()
 
-        recovered = self.recover_interrupted_timer()
+        # A timer with a fresh heartbeat is being driven by a live strip and
+        # should be shown. A stale one was left by a crash and is recovered.
+        running = self.running_timer()
+        recovered = ""
+        if running and not timer.is_live(running, datetime.now(),
+                                        self.config.heartbeat_seconds):
+            running = None
+            recovered = self.recover_interrupted_timer()
         record = self.store.load_day(day)
         notes = list(self.store.warnings)
         if recovered:
@@ -54,6 +61,7 @@ class AppService:
             internal=internal,
             target_seconds=int(self.config.hours_per_day * 3600),
             suggestion_count=self.config.suggestion_count,
+            running=running,
             banner=" ".join(notes),
         )
 
@@ -205,6 +213,15 @@ class AppService:
             return self.jira.issue(key)
         except ApiError:
             return None
+
+    def running_timer(self):
+        """The live timer's raw state, or None.
+
+        Read from disk rather than passed in, so the day window shows the
+        running issue however it was opened — from the strip, or by the 15:30
+        prompt firing while a timer happens to be going.
+        """
+        return self.store.load_timer()
 
     def recover_interrupted_timer(self):
         """Fold a timer that was running when we last closed into the day.
