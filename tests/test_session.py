@@ -1,64 +1,52 @@
-"""The window lifecycle for one timer run.
+"""One window, several pages, and a timer that outlives them.
 
-This was buried in closures inside run_timer, where nothing could test it, and
-I got it wrong twice as a result. The rules it has to obey:
+These rules were buried in closures inside the entry point where nothing could
+reach them, and were wrong three times running. What they have to do:
 
-  - stopping the timer must not replace an open day window
-  - stopping with no window open must produce one
-  - closing the day window while a timer runs must leave the timer alone
-  - closing it once the timer has stopped must end the process, or an
-    invisible root keeps running with nothing on screen
+  - opening a day shows the day page for that date
+  - stopping a timer lands on today with the run folded in
+  - starting a timer leaves the page alone
+  - closing the window hides it while a timer runs, and ends the program
+    when nothing is
 """
 
 import tkinter as tk
 import unittest
 from copy import deepcopy
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from timetracker import dayview, timer
 from timetracker.session import TimerSession
+from timetracker.ui_shell import Shell
 
 HOUR = 3600
+TODAY = date.today()
+LAST_WEDNESDAY = date(2026, 8, 19)
 ISSUE = {"key": "AP-7500", "id": 7500, "summary": "LOPA change"}
 
 
 class FakeStrip:
-    """Stands in for the real strip: it only has to hold timer state."""
-
     def __init__(self, issue, now):
         self.state = timer.start(issue, now)
-        self.closed = False
-
-    def close(self):
-        self.closed = True
 
 
-class FakeDayWindow:
-    """Builds its own record, exactly as the real builder does.
+class FakePage:
+    """A page: something with data and a refresh, built into a frame."""
 
-    The real day window gets its record from service.load_day(), so it is a
-    different dict from whatever the session was holding. If the session does
-    not adopt it, stopping the timer saves one dict and refreshes another —
-    and any hours typed into the window are overwritten.
-    """
-
-    def __init__(self, master, record=None):
-        self.master = master
-        self.data = type("Data", (), {"record": record or fresh_record(),
-                                      "running": None})()
+    def __init__(self, frame, day=None, record=None):
+        self.frame = frame
+        self.data = type("Data", (), {
+            "record": record if record is not None else fresh_record(day),
+            "day": day, "running": None,
+        })()
         self.refreshed = 0
 
     def refresh(self):
         self.refreshed += 1
 
 
-def fresh_record():
-    return {"date": "2026-08-17", "submitted_at": None,
-            "entries": [], "segments": []}
-
-
-def record():
-    return {"date": "2026-08-17", "submitted_at": None,
+def fresh_record(day=None):
+    return {"date": (day or TODAY).isoformat(), "submitted_at": None,
             "entries": [], "segments": []}
 
 
@@ -79,273 +67,243 @@ def has_display():
 @unittest.skipUnless(has_display(), "no display available")
 class SessionTestCase(unittest.TestCase):
     def setUp(self):
-        self.root = tk.Tk()
-        self.root.withdraw()
+        self.window = tk.Tk()
+        self.window.geometry("720x700+40+40")
+        self.window.attributes("-alpha", 0.0)
         self.saved = []
         self.cleared = []
-        self.built = []
+        self.days_built = []
+        self.weeks_built = []
+        self.quit_called = []
         self.addCleanup(self._teardown)
 
+        self.shell = Shell(
+            self.window,
+            build_day=self._build_day,
+            build_week=self._build_week,
+            on_quit=lambda: self.quit_called.append(True),
+        )
         self.session = TimerSession(
-            root=self.root,
-            record=record(),
+            shell=self.shell,
+            record=fresh_record(),
             save_day=self.saved.append,
             clear_timer=lambda: self.cleared.append(True),
-            day_builder=self._build_day,
-        )
-        self.session.start_timer(
-            lambda root: FakeStrip(ISSUE, datetime.now())
+            load_day=self._load_day,
         )
 
     def _teardown(self):
         try:
-            self.root.destroy()
+            self.window.destroy()
         except tk.TclError:
             pass
 
-    def _build_day(self, master, on_running):
-        # The real builder calls service.load_day(), which reads the file. So
-        # a window built after a save must see what was saved.
-        loaded = deepcopy(self.saved[-1]) if self.saved else fresh_record()
-        window = FakeDayWindow(master, loaded)
-        window.on_running = on_running
-        self.built.append(window)
-        return window
+    def _load_day(self, day):
+        # As the real service does: read what was last saved for that day.
+        for record in reversed(self.saved):
+            if record["date"] == day.isoformat():
+                return deepcopy(record)
+        return fresh_record(day)
+
+    def _build_day(self, frame, day):
+        page = FakePage(frame, day=day, record=self._load_day(day))
+        self.days_built.append(page)
+        return page
+
+    def _build_week(self, frame):
+        page = FakePage(frame)
+        self.weeks_built.append(page)
+        return page
+
+    def begin_timing(self):
+        return self.session.start_timer(
+            lambda parent: FakeStrip(ISSUE, datetime.now())
+        )
 
 
-class StoppingKeepsTheWindowYouHave(SessionTestCase):
-    def test_the_same_window_survives_a_stop(self):
+class Navigation(SessionTestCase):
+    def test_the_day_page_opens_on_today_by_default(self):
         self.session.show_day()
-        toplevel = self.session.toplevel
+        self.assertEqual(self.days_built[-1].data.day, TODAY)
 
-        self.session.stop(segment())
+    def test_a_named_day_opens_that_day(self):
+        self.session.show_day(LAST_WEDNESDAY)
+        self.assertEqual(self.days_built[-1].data.day, LAST_WEDNESDAY)
 
-        self.assertIs(self.session.toplevel, toplevel)
-        self.assertTrue(toplevel.winfo_exists())
+    def test_opening_a_day_uses_the_same_page_as_today(self):
+        # "Exactly like the daily tracker" — one page, whatever the date.
+        self.session.show_day(TODAY)
+        self.session.show_day(LAST_WEDNESDAY)
+        self.assertEqual(len(self.days_built), 2)
+        self.assertIsInstance(self.days_built[0], type(self.days_built[1]))
 
-    def test_no_second_window_is_built(self):
+    def test_the_week_replaces_the_day_rather_than_stacking_on_it(self):
         self.session.show_day()
-        self.session.stop(segment())
-        self.assertEqual(len(self.built), 1)
+        self.session.show_week()
 
-    def test_the_root_is_not_destroyed(self):
+        self.assertEqual(self.shell.showing, "week")
+        self.assertEqual(len(self.window.winfo_children()), 1,
+                         "one window, one page")
+
+    def test_going_back_and_forth_leaves_one_page_up(self):
         self.session.show_day()
-        self.session.stop(segment())
-        self.assertTrue(self.root.winfo_exists())
-
-    def test_the_finished_run_lands_in_that_window_s_record(self):
-        day = self.session.show_day()
-        self.session.stop(segment())
-
-        self.assertEqual(dayview.total_seconds(day.data.record), 90 * 60)
-        self.assertGreaterEqual(day.refreshed, 1)
-
-    def test_the_day_is_saved(self):
+        self.session.show_week()
         self.session.show_day()
-        self.session.stop(segment())
-        self.assertTrue(self.saved)
 
-    def test_the_timer_file_is_cleared(self):
+        self.assertEqual(self.shell.showing, "day")
+        self.assertEqual(len(self.shell.container.winfo_children()), 1)
+
+    def test_the_window_title_says_which_page(self):
+        self.session.show_week()
+        self.assertIn("week", self.window.title())
+
+        self.session.show_day(LAST_WEDNESDAY)
+        self.assertIn("Wednesday", self.window.title())
+
+
+class StartingATimer(SessionTestCase):
+    def test_the_page_is_left_alone(self):
         self.session.show_day()
+        page = self.shell.view
+
+        self.begin_timing()
+
+        self.assertIs(self.shell.view, page)
+        self.assertEqual(len(self.days_built), 1)
+
+    def test_it_can_be_started_from_the_week_page(self):
+        self.session.show_week()
+        self.begin_timing()
+
+        self.assertEqual(self.shell.showing, "week")
+        self.assertTrue(self.session.timing)
+
+    def test_nothing_is_reported_running_before_one_starts(self):
+        self.assertIsNone(self.session.running_state())
+
+    def test_the_running_state_is_reported_once_it_does(self):
+        self.begin_timing()
+        self.assertEqual(self.session.running_state()["issue_key"], "AP-7500")
+
+
+class StoppingATimer(SessionTestCase):
+    def test_it_lands_on_today(self):
+        self.session.show_week()
+        self.begin_timing()
+
         self.session.stop(segment())
-        self.assertTrue(self.cleared)
 
+        self.assertEqual(self.shell.showing, "day")
+        self.assertEqual(self.shell.view.data.day, TODAY)
 
-class StoppingWithNoWindowOpen(SessionTestCase):
-    def test_a_window_is_built(self):
+    def test_the_run_is_in_the_day_it_lands_on(self):
+        self.session.show_week()
+        self.begin_timing()
+
         self.session.stop(segment())
 
-        self.assertEqual(len(self.built), 1)
-        self.assertTrue(self.session.toplevel.winfo_exists())
+        self.assertEqual(dayview.total_seconds(self.shell.view.data.record),
+                         90 * 60)
 
-    def test_the_time_is_in_it(self):
+    def test_todays_page_is_kept_rather_than_rebuilt(self):
+        self.session.show_day()
+        self.begin_timing()
+        page = self.shell.view
+
         self.session.stop(segment())
-        self.assertEqual(dayview.total_seconds(self.session.record), 90 * 60)
 
+        self.assertIs(self.shell.view, page, "the page must not be replaced")
+        self.assertEqual(len(self.days_built), 1)
+        self.assertGreaterEqual(page.refreshed, 1)
 
-class OneRecordNotTwo(SessionTestCase):
-    """The window's record and the session's must be the same object, or a
-    stop saves one and refreshes the other."""
+    def test_the_run_lands_in_that_kept_page(self):
+        self.session.show_day()
+        self.begin_timing()
 
-    def test_the_session_adopts_the_window_s_record(self):
-        day = self.session.show_day()
-        self.assertIs(self.session.record, day.data.record)
+        self.session.stop(segment())
 
-    def test_hours_typed_before_a_stop_are_not_lost(self):
-        day = self.session.show_day()
-        day.data.record["entries"].append({
-            "issue_key": "AP-1", "issue_id": 1, "summary": "typed by hand",
+        self.assertEqual(dayview.total_seconds(self.shell.view.data.record),
+                         90 * 60)
+
+    def test_hours_typed_before_the_stop_survive_it(self):
+        self.session.show_day()
+        self.begin_timing()
+        self.shell.view.data.record["entries"].append({
+            "issue_key": "AP-1", "issue_id": 1, "summary": "typed",
             "seconds": 2 * HOUR, "note": "", "source": "manual",
             "confirmed": True, "submitted": False, "tempo_worklog_id": None,
         })
 
         self.session.stop(segment())
 
-        self.assertEqual(dayview.total_seconds(day.data.record),
-                         2 * HOUR + 90 * 60)
-        self.assertEqual(dayview.total_seconds(self.saved[-1]),
+        self.assertEqual(dayview.total_seconds(self.shell.view.data.record),
                          2 * HOUR + 90 * 60)
 
+    def test_stopping_while_looking_at_another_day_does_not_touch_it(self):
+        self.session.show_day(LAST_WEDNESDAY)
+        wednesday = self.shell.view.data.record
+        self.begin_timing()
 
-class ShowingTheDayTwice(SessionTestCase):
-    def test_the_second_press_reuses_the_window(self):
-        first = self.session.show_day()
-        second = self.session.show_day()
-
-        self.assertIs(first, second)
-        self.assertEqual(len(self.built), 1)
-
-    def test_a_closed_window_is_rebuilt(self):
-        self.session.show_day()
-        self.session.toplevel.destroy()
-        self.root.update()
-
-        self.session.show_day()
-        self.assertEqual(len(self.built), 2)
-
-
-class WhatTheDayWindowIsToldAboutTheTimer(SessionTestCase):
-    def test_it_reports_the_running_state(self):
-        self.session.show_day()
-        self.assertEqual(self.session.running_state()["issue_key"], "AP-7500")
-
-    def test_it_reports_nothing_once_stopped(self):
-        self.session.show_day()
         self.session.stop(segment())
+
+        self.assertEqual(dayview.total_seconds(wednesday), 0)
+        self.assertEqual(self.shell.view.data.day, TODAY)
+
+    def test_the_day_is_saved_and_the_timer_file_cleared(self):
+        self.session.show_day()
+        self.begin_timing()
+        self.session.stop(segment())
+
+        self.assertTrue(self.saved)
+        self.assertTrue(self.cleared)
+
+    def test_nothing_is_reported_running_afterwards(self):
+        self.session.show_day()
+        self.begin_timing()
+        self.session.stop(segment())
+
         self.assertIsNone(self.session.running_state())
 
 
-class StartingATimerFromTheDayWindow(unittest.TestCase):
-    """The ▶ button used to destroy the day window and rebuild it when the
-    timer stopped, which is the restart the user actually saw."""
-
-    def setUp(self):
-        self.root = tk.Tk()
-        self.root.withdraw()
-        self.built = []
-        self.addCleanup(self._teardown)
-
-        self.session = TimerSession(
-            root=self.root, record=record(), save_day=lambda r: None,
-            clear_timer=lambda: None,
-            day_builder=self._build_day,
-        )
-
-    def _teardown(self):
-        try:
-            self.root.destroy()
-        except tk.TclError:
-            pass
-
-    def _build_day(self, master, on_running):
-        window = FakeDayWindow(master)
-        self.built.append(window)
-        return window
-
-    def test_the_day_window_survives_starting_a_timer(self):
-        day = self.session.show_day()
-        toplevel = self.session.toplevel
-
-        self.session.start_timer(lambda root: FakeStrip(ISSUE, datetime.now()))
-
-        self.assertIs(self.session.day, day)
-        self.assertIs(self.session.toplevel, toplevel)
-        self.assertTrue(toplevel.winfo_exists())
-
-    def test_and_survives_the_stop_that_follows(self):
+class ClosingTheWindow(SessionTestCase):
+    def test_with_a_timer_running_it_only_hides(self):
+        # The strip is still doing its job; killing the window would throw
+        # away the run.
         self.session.show_day()
-        toplevel = self.session.toplevel
-        self.session.start_timer(lambda root: FakeStrip(ISSUE, datetime.now()))
+        self.begin_timing()
+
+        ended = self.session.close_window()
+
+        self.assertFalse(ended)
+        self.assertTrue(self.window.winfo_exists())
+        self.assertFalse(self.shell.is_visible())
+
+    def test_a_hidden_window_comes_back_when_asked(self):
+        self.session.show_day()
+        self.begin_timing()
+        self.session.close_window()
+
+        self.session.show_day()
+
+        self.assertTrue(self.shell.is_visible())
+
+    def test_with_nothing_running_it_ends_the_program(self):
+        self.session.show_day()
+
+        ended = self.session.close_window()
+
+        self.assertTrue(ended)
+        with self.assertRaises(tk.TclError):
+            self.window.update()
+            self.window.winfo_exists()
+
+    def test_stopping_a_timer_brings_a_hidden_window_back(self):
+        self.session.show_day()
+        self.begin_timing()
+        self.session.close_window()
 
         self.session.stop(segment())
 
-        self.assertIs(self.session.toplevel, toplevel)
-        self.assertEqual(len(self.built), 1, "only ever one window")
-
-    def test_with_no_timer_running_nothing_is_reported_as_running(self):
-        self.session.show_day()
-        self.assertIsNone(self.session.running_state())
-
-    def test_closing_the_day_with_no_timer_ends_the_run(self):
-        self.session.show_day()
-        self.session.toplevel.destroy()
-
-        with self.assertRaises(tk.TclError):
-            self.root.update()
-            self.root.winfo_exists()
-
-
-class TheWeekWindow(SessionTestCase):
-    def setUp(self):
-        super().setUp()
-        self.weeks = []
-        self.session.week_builder = self._build_week
-
-    def _build_week(self, master):
-        window = FakeDayWindow(master)
-        self.weeks.append(window)
-        return window
-
-    def test_it_opens(self):
-        self.session.show_week()
-
-        self.assertEqual(len(self.weeks), 1)
-        self.assertTrue(self.session.week_toplevel.winfo_exists())
-
-    def test_pressing_again_reuses_it(self):
-        first = self.session.show_week()
-        second = self.session.show_week()
-
-        self.assertIs(first, second)
-        self.assertEqual(len(self.weeks), 1)
-
-    def test_closing_it_ends_nothing(self):
-        # It is somewhere you go to look and fix, not what holds the session
-        # open. Closing it must not stop a running timer.
-        self.session.show_week()
-        self.session.week_toplevel.destroy()
-        self.root.update()
-
-        self.assertTrue(self.root.winfo_exists())
-        self.assertTrue(self.session.timing)
-
-    def test_a_closed_week_window_reopens(self):
-        self.session.show_week()
-        self.session.week_toplevel.destroy()
-        self.root.update()
-
-        self.session.show_week()
-        self.assertEqual(len(self.weeks), 2)
-
-    def test_it_can_be_open_alongside_the_day(self):
-        self.session.show_day()
-        self.session.show_week()
-
-        self.assertTrue(self.session.day_is_open())
-        self.assertTrue(self.session.week_is_open())
-
-
-class ClosingTheDayWindow(SessionTestCase):
-    def test_while_a_timer_runs_the_process_stays_alive(self):
-        self.session.show_day()
-        self.session.toplevel.destroy()
-        self.root.update()
-
-        self.assertTrue(self.root.winfo_exists(),
-                        "closing the day must not kill a running timer")
-
-    def test_once_the_timer_has_stopped_it_ends_the_run(self):
-        # Otherwise an invisible root keeps the process alive forever.
-        self.session.show_day()
-        self.session.stop(segment())
-
-        self.session.toplevel.destroy()
-
-        # Destroying the root tears down the interpreter, so even asking
-        # whether it still exists fails. That failure is the evidence.
-        with self.assertRaises(tk.TclError):
-            self.root.update()
-            self.root.winfo_exists()
+        self.assertTrue(self.shell.is_visible())
 
 
 if __name__ == "__main__":

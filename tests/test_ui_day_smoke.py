@@ -121,6 +121,7 @@ class DayWindowSmoke(unittest.TestCase):
             "on_lookup": lambda key: None,
             "on_close": lambda: None,
             "on_running": None,
+            "on_show_week": lambda: None,
         }
         defaults.update(callbacks)
         window = DayWindow(self.root, data, DayCallbacks(**defaults))
@@ -531,6 +532,28 @@ class DayWindowSmoke(unittest.TestCase):
         window = self.build()
         info = window.footer.pack_info()
         self.assertEqual(str(info["pady"]), str(window.theme.space["lg"]))
+
+    def test_today_is_called_today(self):
+        window = self.build(DayData(day=date.today(), record=record()))
+        self.assertEqual(window.title_label.cget("text"), "Today")
+
+    def test_another_day_names_itself(self):
+        """The same page serves any date, so it has to say which one — a page
+        silently showing last Wednesday looks exactly like one showing now."""
+        window = self.build(DayData(day=date(2026, 8, 19), record=record()))
+        self.assertEqual(window.title_label.cget("text"), "Wednesday 19 August")
+
+    def test_the_week_button_is_there(self):
+        window = self.build()
+        self.assertIn("Week", window.week_button.cget("text"))
+
+    def test_the_week_button_asks_to_show_the_week(self):
+        asked = []
+        self.build(on_show_week=lambda: asked.append(True))
+        self.root.update()
+        window = self.build(on_show_week=lambda: asked.append(True))
+        window.callbacks.on_show_week()
+        self.assertTrue(asked)
 
     def test_there_is_no_scrollbar(self):
         window = self.build()

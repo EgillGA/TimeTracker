@@ -1,15 +1,15 @@
-"""The week window.
+"""The week page.
 
-Its purpose is fixing a short week, not admiring one, so the tests are mostly
-about editing: opening a day, typing into it, and getting those hours to
-Tempo — while never offering to re-log hours that are already there.
+It answers one question — which days are short — and hands you off to the day
+page to fix them. It deliberately does no editing of its own: a second,
+smaller editor for back-dated days would be a second place for the rules about
+not re-logging hours to be got wrong.
 """
 
 import tkinter as tk
 import unittest
 from datetime import date
 
-from timetracker import dayview
 from timetracker.ui_week import WeekCallbacks, WeekWindow
 from timetracker.week import DaySummary
 
@@ -22,27 +22,14 @@ def summary(day, submitted=0, pending=0):
                       pending_seconds=pending, target_seconds=8 * HOUR)
 
 
-def record(day, entries=None):
-    return {"date": day.isoformat(), "submitted_at": None,
-            "entries": entries or [], "segments": []}
-
-
-def entry(key, seconds, **overrides):
-    base = {"issue_key": key, "issue_id": 1, "summary": f"{key} summary",
-            "seconds": seconds, "note": "", "source": "manual",
-            "confirmed": True, "submitted": False, "tempo_worklog_id": None}
-    base.update(overrides)
-    return base
-
-
 class Data:
     """Stands in for week.WeekData."""
 
-    def __init__(self, days, records, assigned=None, internal=None, banner=""):
+    def __init__(self, days, banner=""):
         self.days = days
-        self.records = records
-        self.assigned = assigned or []
-        self.internal = internal or []
+        self.records = {}
+        self.assigned = []
+        self.internal = []
         self.target_seconds = 8 * HOUR
         self.banner = banner
 
@@ -75,13 +62,13 @@ def has_display():
 
 
 @unittest.skipUnless(has_display(), "no display available")
-class WeekWindowTestCase(unittest.TestCase):
+class WeekPageTestCase(unittest.TestCase):
     def setUp(self):
         self.root = tk.Tk()
         self.root.geometry("760x520+40+40")
         self.root.attributes("-alpha", 0.0)
-        self.saved = []
-        self.submitted = []
+        self.opened = []
+        self.closed = []
         self.addCleanup(self._teardown)
 
     def _teardown(self):
@@ -90,34 +77,26 @@ class WeekWindowTestCase(unittest.TestCase):
         except tk.TclError:
             pass
 
-    def build(self, data=None, **callbacks):
-        data = data or self.default_data()
-        defaults = {
-            "on_change": self.saved.append,
-            "on_submit": lambda record, day: self.submitted.append((record, day)) or [],
-            "on_lookup": lambda key: None,
-            "on_close": lambda: None,
-        }
-        defaults.update(callbacks)
-        window = WeekWindow(self.root, data, WeekCallbacks(**defaults))
+    def build(self, data=None):
+        window = WeekWindow(
+            self.root, data or self.default_data(),
+            WeekCallbacks(on_open_day=self.opened.append,
+                          on_close=lambda: self.closed.append(True)),
+        )
         self.root.update()
         return window
 
     def default_data(self):
-        return Data(
-            days=[summary(MON, submitted=8 * HOUR), summary(TUE, submitted=8 * HOUR),
-                  summary(WED, submitted=4 * HOUR), summary(THU, submitted=8 * HOUR),
-                  summary(FRI, pending=5 * HOUR + 30 * 60)],
-            records={
-                MON: record(MON), TUE: record(TUE),
-                WED: record(WED, [entry("AP-1", 4 * HOUR, submitted=True,
-                                        tempo_worklog_id=9)]),
-                THU: record(THU), FRI: record(FRI, [entry("AP-2", 5 * HOUR + 1800)]),
-            },
-        )
+        return Data([
+            summary(MON, submitted=8 * HOUR),
+            summary(TUE, submitted=8 * HOUR),
+            summary(WED, submitted=4 * HOUR),
+            summary(THU, submitted=8 * HOUR),
+            summary(FRI, pending=5 * HOUR + 30 * 60),
+        ])
 
 
-class TheWeekAtAGlance(WeekWindowTestCase):
+class TheWeekAtAGlance(WeekPageTestCase):
     def test_it_builds(self):
         self.build()
 
@@ -129,185 +108,78 @@ class TheWeekAtAGlance(WeekWindowTestCase):
                 self.assertIn(f"{day:%a %d}", shown)
 
     def test_the_week_total_is_shown(self):
+        window = self.build()
+        self.assertEqual(window.total_label.cget("text"), "33:30 of 40:00")
+
+    def test_each_day_shows_its_hours(self):
         self.build()
-        self.assertEqual(self.build().total_label.cget("text"),
-                         "33:30 of 40:00")
+        shown = labels(self.root)
+        self.assertIn("4:00", shown)   # Wednesday
+        self.assertIn("5:30", shown)   # Friday
 
     def test_short_days_say_what_is_missing(self):
         self.build()
         shown = labels(self.root)
-        self.assertIn("4:00 missing", shown)   # Wednesday
-        self.assertIn("2:30 missing", shown)   # Friday
-
-    def test_a_complete_day_says_nothing_about_missing_time(self):
-        data = Data(days=[summary(MON, submitted=8 * HOUR)],
-                    records={MON: record(MON)})
-        window = self.build(data)
-        self.assertEqual(window.missing_label.cget("text"),
-                         "The week is complete.")
+        self.assertIn("4:00 missing", shown)
+        self.assertIn("2:30 missing", shown)
 
     def test_the_week_shortfall_is_totalled(self):
         window = self.build()
         self.assertIn("6:30 missing", window.missing_label.cget("text"))
 
-
-class OpeningADay(WeekWindowTestCase):
-    def test_days_start_closed(self):
-        window = self.build()
-        self.assertIsNone(window.open_day)
-        self.assertNotIn("AP-1", labels(self.root))
-
-    def test_clicking_a_day_reveals_what_is_on_it(self):
-        window = self.build()
-        window._toggle(WED)
-        self.root.update()
-
-        self.assertEqual(window.open_day, WED)
-        self.assertIn("AP-1", labels(self.root))
-
-    def test_clicking_it_again_closes_it(self):
-        window = self.build()
-        window._toggle(WED)
-        window._toggle(WED)
-        self.root.update()
-
-        self.assertIsNone(window.open_day)
-
-    def test_only_one_day_is_open_at_a_time(self):
-        window = self.build()
-        window._toggle(WED)
-        window._toggle(FRI)
-        self.root.update()
-
-        self.assertEqual(window.open_day, FRI)
-        self.assertNotIn("AP-1", labels(self.root))
-
-    def test_an_empty_day_says_so(self):
-        window = self.build()
-        window._toggle(MON)
-        self.root.update()
-        self.assertTrue([t for t in labels(self.root)
-                         if "Nothing logged" in t])
-
-
-class EditingAPastDay(WeekWindowTestCase):
-    def type_into(self, window, day, key, text):
-        field = window._fields[(day, key)]
-        field.delete(0, "end")
-        field.focus_force()
-        for _ in range(100):
-            self.root.update()
-            if self.root.focus_get() is field:
-                break
-        else:
-            self.fail("could not focus the hours field")
-
-        field.insert(0, text)
-        field.event_generate("<KeyRelease>", keysym="Right")
-        self.root.update()
-        return field
-
-    def test_typing_hours_updates_that_day_s_record(self):
-        data = self.default_data()
+    def test_a_complete_week_says_so(self):
+        data = Data([summary(MON, submitted=8 * HOUR)])
         window = self.build(data)
-        window._toggle(FRI)
-        self.root.update()
+        self.assertEqual(window.missing_label.cget("text"),
+                         "The week is complete.")
 
-        self.type_into(window, FRI, "AP-2", "7:30")
+    def test_a_full_day_is_not_marked_missing(self):
+        data = Data([summary(MON, submitted=8 * HOUR)])
+        self.build(data)
+        self.assertEqual([t for t in labels(self.root) if "missing" in t
+                          and t != "The week is complete."], [])
 
-        self.assertEqual(dayview.total_seconds(data.records[FRI]),
-                         7 * HOUR + 1800)
-        self.assertTrue(self.saved)
+    def test_pending_local_hours_count_toward_a_day(self):
+        # Typed but not yet submitted still means the day is not empty.
+        data = Data([summary(MON, submitted=2 * HOUR, pending=3 * HOUR)])
+        self.build(data)
+        self.assertIn("5:00", labels(self.root))
 
-    def test_it_edits_the_day_you_opened_and_no_other(self):
-        data = self.default_data()
-        window = self.build(data)
-        window._toggle(FRI)
-        self.root.update()
-
-        self.type_into(window, FRI, "AP-2", "7:30")
-
-        self.assertEqual(dayview.total_seconds(data.records[MON]), 0)
-        self.assertEqual(dayview.total_seconds(data.records[WED]), 4 * HOUR)
-
-    def test_hours_already_in_tempo_are_shown_but_not_editable(self):
-        data = self.default_data()
-        window = self.build(data)
-        window._toggle(WED)
-        self.root.update()
-
-        self.assertIn("4:00 logged", labels(self.root))
-        self.assertEqual(window._fields[(WED, "AP-1")].get(), "",
-                         "the box beside logged hours starts empty")
-
-    def test_adding_to_a_submitted_issue_makes_a_new_sendable_row(self):
-        # Back-dated entry is where double-logging is easiest to do and
-        # hardest to spot, so the logged hours must never be resent.
-        data = self.default_data()
-        window = self.build(data)
-        window._toggle(WED)
-        self.root.update()
-
-        self.type_into(window, WED, "AP-1", "2")
-
-        pending = dayview.entries_to_submit(data.records[WED])
-        self.assertEqual(len(pending), 1)
-        self.assertEqual(pending[0]["seconds"], 2 * HOUR)
-        self.assertEqual(dayview.total_seconds(data.records[WED]), 6 * HOUR)
-
-    def test_invalid_input_is_flagged_and_kept(self):
-        data = self.default_data()
-        window = self.build(data)
-        window._toggle(FRI)
-        self.root.update()
-
-        field = self.type_into(window, FRI, "AP-2", "lunchtime")
-
-        self.assertEqual(field.get(), "lunchtime")
-        self.assertEqual(str(field.cget("highlightbackground")),
-                         window.theme["danger"])
+    def test_a_banner_is_shown_when_there_is_one(self):
+        self.build(Data([summary(MON)], banner="Can't reach Jira."))
+        self.assertTrue([t for t in labels(self.root) if "Can't reach" in t])
 
 
-class SubmittingAPastDay(WeekWindowTestCase):
-    def test_submitting_sends_that_day_s_date(self):
-        data = self.default_data()
-        window = self.build(data)
-        window._toggle(FRI)
-        self.root.update()
-
-        window._submit(data.days[4])
-
-        self.assertEqual(len(self.submitted), 1)
-        _, day = self.submitted[0]
-        self.assertEqual(day, FRI)
-
-    def test_the_button_names_the_day_and_the_hours(self):
+class OpeningADay(WeekPageTestCase):
+    def test_clicking_a_day_asks_for_that_day(self):
         window = self.build()
-        window._toggle(FRI)
-        self.root.update()
+        window.callbacks.on_open_day(WED)
+        self.assertEqual(self.opened, [WED])
 
-        self.assertIn("Add 5:30 to Friday", labels(self.root))
+    def test_the_rows_are_wired_to_open_their_own_day(self):
+        # Every clickable widget on a row must carry the same date, or
+        # clicking the bar would open a different day from clicking the name.
+        self.build()
+        rows = [w for w in _descendants(self.root)
+                if isinstance(w, tk.Frame) and w.winfo_children()]
 
-    def test_a_day_with_nothing_pending_offers_nothing_to_add(self):
+        clickable = [w for w in _descendants(self.root)
+                     if w.bind("<Button-1>") and str(w.cget("cursor")) == "hand2"]
+        self.assertGreaterEqual(len(clickable), 5,
+                                "each day row should be clickable")
+
+    def test_the_page_does_not_edit_anything_itself(self):
+        # No entry boxes here: editing belongs to the day page, so there is
+        # only one place the do-not-re-log rules have to be right.
+        self.build()
+        entries = [w for w in _descendants(self.root)
+                   if isinstance(w, tk.Entry)]
+        self.assertEqual(entries, [])
+
+    def test_closing_reports_back(self):
         window = self.build()
-        window._toggle(WED)
-        self.root.update()
-
-        self.assertIn("Nothing to add", labels(self.root))
-
-    def test_a_rejected_row_shows_tempo_s_message(self):
-        data = self.default_data()
-        window = self.build(data, on_submit=lambda record, day: [
-            {"issue_key": "AP-2", "ok": False,
-             "message": "Period is closed for the given date"}
-        ])
-        window._toggle(FRI)
-        self.root.update()
-        window._submit(data.days[4])
-        self.root.update()
-
-        self.assertTrue([t for t in labels(self.root)
-                         if "Period is closed" in t])
+        window._close()
+        self.assertTrue(self.closed)
 
 
 if __name__ == "__main__":

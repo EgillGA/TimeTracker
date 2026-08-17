@@ -88,37 +88,36 @@ def open_week():
     return _run_session(start_on_week=True)
 
 
-def _build_day_window(master, service, theme, on_start_timer, on_running=None,
-                      on_show_week=None):
-    """Attach a day window to an existing root or toplevel."""
+def _day_page(frame, day, service, theme, on_start_timer, on_running,
+              on_show_week, on_close):
+    """The day page, for any date. The same page serves today and last
+    Wednesday — the only difference is which record it loads."""
     from timetracker.ui_day import DayCallbacks, DayWindow
 
-    data = service.load_day()
+    data = service.load_day(day)
     return DayWindow(
-        master, data,
+        frame, data,
         DayCallbacks(
             on_change=service.save,
             on_submit=lambda record: service.submit(record, data.day),
             on_lookup=service.lookup,
             on_start_timer=on_start_timer,
-            on_running=on_running,
-            on_show_week=on_show_week or (lambda: None),
+            # Only today can have a timer running against it; a past day
+            # showing a live figure would be a lie.
+            on_running=on_running if day == date.today() else (lambda: None),
+            on_show_week=on_show_week,
+            on_close=on_close,
         ),
         theme,
     )
 
 
-def _build_week_window(master, service, theme):
-    """Attach the week overview to an existing toplevel."""
+def _week_page(frame, service, theme, on_open_day, on_close):
     from timetracker.ui_week import WeekCallbacks, WeekWindow
 
     return WeekWindow(
-        master, service.load_week(),
-        WeekCallbacks(
-            on_change=service.save,
-            on_submit=service.submit,
-            on_lookup=service.lookup,
-        ),
+        frame, service.load_week(),
+        WeekCallbacks(on_open_day=on_open_day, on_close=on_close),
         theme,
     )
 
@@ -129,17 +128,18 @@ def run_timer(issue_key):
 
 
 def _run_session(open_with_timer=None, start_on_week=False):
-    """One session, one event loop, whichever end you come in from.
+    """One program: one window, one event loop, whichever end you come in from.
 
-    Both the day window and the timer strip belong to the same TimerSession,
-    so starting a timer never closes the day window and stopping one never
-    rebuilds it.
+    The day and the week are pages inside that window. The timer strip is the
+    one separate thing, because borderless and always-on-top over the clock is
+    not something a page inside a normal window can be.
     """
     from timetracker import ui_notice
     from timetracker.config import load_config
     from timetracker.session import TimerSession
     from timetracker.store import Store
     from timetracker.theme import Theme
+    from timetracker.ui_shell import Shell
     from timetracker.ui_strip import StripCallbacks, TimerStrip
 
     config = load_config(ROOT)
@@ -150,45 +150,54 @@ def _run_session(open_with_timer=None, start_on_week=False):
         return 1
 
     store = Store()
-    root = tk.Tk()
-    root.withdraw()
+    window = tk.Tk()
 
-    # One event loop for both windows, and one object owning when each of them
-    # exists. Those rules used to live in closures right here, where no test
-    # could reach them, and were wrong twice as a result. See session.py.
     def begin(issue):
-        """Put the strip on screen for an issue, leaving windows alone."""
+        """Put the strip on screen, leaving the page where it is."""
         return session.start_timer(lambda parent: TimerStrip(
             parent, issue, config,
             StripCallbacks(
                 on_persist=store.save_timer,
                 on_stop=session.stop,
-                on_open_day=session.show_day,
+                on_open_day=lambda: session.show_day(),
             ),
             theme,
         ))
 
-    session = TimerSession(
-        root=root,
-        record=store.load_day(date.today()),
-        save_day=store.save_day,
-        clear_timer=store.clear_timer,
-        day_builder=lambda toplevel, on_running: _build_day_window(
-            toplevel, service, theme,
+    shell = Shell(
+        window,
+        build_day=lambda frame, day: _day_page(
+            frame, day, service, theme,
             on_start_timer=begin,
             # The strip is the authority while it runs, so ask it rather than
             # re-reading the file it only writes every 30 seconds.
-            on_running=on_running,
+            on_running=session.running_state,
             on_show_week=lambda: session.show_week(),
+            on_close=lambda: session.close_window(),
         ),
-        week_builder=lambda toplevel: _build_week_window(
-            toplevel, service, theme
+        build_week=lambda frame: _week_page(
+            frame, service, theme,
+            on_open_day=lambda day: session.show_day(day),
+            on_close=lambda: session.close_window(),
         ),
+        theme=theme,
+        on_quit=lambda: session.close_window(),
+    )
+
+    session = TimerSession(
+        shell=shell,
+        record=store.load_day(date.today()),
+        save_day=store.save_day,
+        clear_timer=store.clear_timer,
+        load_day=store.load_day,
     )
 
     if start_on_week:
         session.show_week()
-    elif open_with_timer:
+    else:
+        session.show_day()
+
+    if open_with_timer:
         issue = service.lookup(open_with_timer)
         if issue is None:
             ui_notice.show("No such issue",
@@ -196,10 +205,10 @@ def _run_session(open_with_timer=None, start_on_week=False):
                            theme=theme)
             return 1
         begin(issue)
-    else:
-        session.show_day()
+        # Launched purely to time something: get out of the way until asked.
+        shell.hide()
 
-    root.mainloop()
+    window.mainloop()
     return 0
 
 

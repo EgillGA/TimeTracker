@@ -1,147 +1,109 @@
-"""Window lifecycle for one timer run.
+"""What one run of TimeTracker consists of.
 
-The strip and the day window share a single Tk root and a single event loop, so
-one of them has to own the rules about when each exists. That ownership lived
-in closures inside the entry point, where nothing could test it — and stopping
-the timer tore down the root and rebuilt the day window, which looked exactly
-like the window closing and reopening.
+One window showing one page at a time, and optionally a timer strip. This
+owns the rules connecting them: which page is up, what happens when a timer
+stops, and what closing the window means depending on whether one is running.
 
-Kept separate from tkinter widget construction: `day_builder` is injected, so
-these transitions can be tested without a real day window.
+Those rules used to live in closures inside the entry point where nothing
+could test them, and were wrong three times as a result.
 """
 
-import tkinter as tk
+from datetime import date
 
 from timetracker import dayview
 
 
 class TimerSession:
-    def __init__(self, root, record, save_day, clear_timer, day_builder,
-                 week_builder=None):
-        self.root = root
+    def __init__(self, shell, record, save_day, clear_timer, load_day=None):
+        self.shell = shell
         self.record = record
         self.save_day = save_day
         self.clear_timer = clear_timer
-        self.day_builder = day_builder
-        self.week_builder = week_builder
+        self.load_day = load_day or (lambda day: record)
 
         self.strip = None
-        self.toplevel = None
-        self.day = None
-        self.week_toplevel = None
-        self.week = None
-        # False until a timer is actually running. That matters for the rule
-        # below about closing the day window: with no timer going, closing it
-        # is the end of the run.
         self.timing = False
 
     # -- the timer ----------------------------------------------------------
 
     def start_timer(self, strip_factory):
-        """Begin timing, leaving any open day window exactly where it is.
-
-        Starting a timer used to tear the day window down and rebuild it when
-        the timer stopped, which read as the window closing and reopening.
-        Both now live in the same session, so neither disturbs the other.
-        """
-        self.strip = strip_factory(self.root)
+        """Begin timing, leaving whatever page is up exactly where it is."""
+        self.strip = strip_factory(self.shell.window)
         self.timing = True
         return self.strip
-
-    # -- what the day window asks -------------------------------------------
 
     def running_state(self):
         """The timer's state, or None once it has stopped.
 
-        A paused timer still reports itself: the elapsed figure freezes, which
-        is what paused looks like, rather than the row vanishing.
+        A paused timer still reports itself: its figure freezes, which is what
+        paused looks like, rather than the row vanishing.
         """
         if not self.timing or self.strip is None:
             return None
         return self.strip.state
 
-    # -- windows ------------------------------------------------------------
+    # -- pages --------------------------------------------------------------
 
-    def day_is_open(self):
-        return self.toplevel is not None and self.toplevel.winfo_exists()
+    def show_day(self, day=None):
+        day = day or date.today()
+        view = self.shell.show_day(day)
+        self.shell.present()
 
-    def show_day(self):
-        """Open the day window, or bring the one already open to the front."""
-        if self.day_is_open():
-            self.toplevel.deiconify()
-            self.toplevel.lift()
-            self.toplevel.focus_force()
-            return self.day
-
-        self.toplevel = tk.Toplevel(self.root)
-        self.day = self.day_builder(self.toplevel, self.running_state)
-
-        # The window loads its own record. Adopt it, so there is exactly one
-        # of them: otherwise stopping the timer would add the run to the
-        # session's copy, save that, and overwrite whatever had been typed
-        # into the window.
-        window_record = getattr(self.day.data, "record", None)
-        if window_record is not None:
-            self.record = window_record
-
-        self._end_run_when_closed(self.toplevel)
-        return self.day
-
-    def week_is_open(self):
-        return (self.week_toplevel is not None
-                and self.week_toplevel.winfo_exists())
+        # Today's page owns the record this session writes to, so that folding
+        # in a finished run and refreshing the page touch the same dict.
+        if day == date.today():
+            record = getattr(getattr(view, "data", None), "record", None)
+            if record is not None:
+                self.record = record
+        return view
 
     def show_week(self):
-        """Open the week overview, or bring the one already open forward.
-
-        Unlike the day window, closing this one ends nothing: it is somewhere
-        you go to look and fix, not the thing that holds the session open.
-        """
-        if self.week_builder is None:
-            return None
-
-        if self.week_is_open():
-            self.week_toplevel.deiconify()
-            self.week_toplevel.lift()
-            self.week_toplevel.focus_force()
-            return self.week
-
-        self.week_toplevel = tk.Toplevel(self.root)
-        self.week = self.week_builder(self.week_toplevel)
-        return self.week
-
-    def _end_run_when_closed(self, toplevel):
-        """Once the timer has stopped this is the only window left, so closing
-        it must end the run. While a timer is still going it must not: the
-        strip is still there doing its job."""
-        def closed(event):
-            if event.widget is toplevel and not self.timing:
-                try:
-                    self.root.destroy()
-                except tk.TclError:
-                    pass
-
-        toplevel.bind("<Destroy>", closed)
+        view = self.shell.show_week()
+        self.shell.present()
+        return view
 
     # -- stopping -----------------------------------------------------------
 
     def stop(self, piece):
-        """Fold a finished run into the day and show it.
+        """Fold a finished run into today and show it.
 
-        The record is the one the open window is already holding, so the window
-        and the file stay the same thing and the window never has to be rebuilt
-        to see the new hours.
+        Always lands on today's page: stopping the timer is how a day gets
+        closed out, and the hours just recorded are today's.
         """
         self.timing = False
         self.clear_timer()
 
-        dayview.add_segment(self.record, piece)
-        self.save_day(self.record)
+        today = date.today()
+        on_today = (self.shell.showing == "day"
+                    and getattr(getattr(self.shell.view, "data", None),
+                                "day", None) == today)
 
-        if self.day_is_open():
-            self.day.data.running = None
-            self.day.refresh()
-            self.show_day()
-            return self.day
+        if on_today:
+            dayview.add_segment(self.record, piece)
+            self.save_day(self.record)
+            self.shell.view.data.running = None
+            self.shell.view.refresh()
+            self.shell.present()
+            return self.shell.view
 
-        return self.show_day()
+        # Save against today's record on disk, then let the page load it.
+        record = self.load_day(today)
+        dayview.add_segment(record, piece)
+        self.save_day(record)
+        return self.show_day(today)
+
+    # -- closing ------------------------------------------------------------
+
+    def close_window(self):
+        """The window's X, or Escape.
+
+        With a timer running the window only hides — the strip is still doing
+        its job and killing it would throw away the run. With nothing running
+        there is nothing left, so this ends the program.
+        """
+        if self.timing:
+            self.shell.hide()
+            return False
+
+        self.shell.window.destroy()
+        return True

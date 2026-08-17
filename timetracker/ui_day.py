@@ -65,11 +65,7 @@ class DayWindow:
         self._running_label = None
         self._shown_running = None
 
-        master.title(f"TimeTracker — {data.day:%A %d %B}")
         master.configure(bg=self.theme["bg"])
-        width, height = self.theme.metrics["day_window"]
-        master.geometry(f"{width}x{height}")
-        master.minsize(560, 420)
 
         self._build()
         self._bind_keys()
@@ -85,7 +81,7 @@ class DayWindow:
         self.header.pack(fill="x", padx=pad, pady=(pad, 0))
 
         self.title_label = tk.Label(
-            self.header, text="Today", bg=self.theme["bg"],
+            self.header, text=self._day_name(), bg=self.theme["bg"],
             fg=self.theme["text"], font=self.theme.font("heading"), anchor="w",
         )
         self.title_label.pack(side="left")
@@ -214,10 +210,22 @@ class DayWindow:
                else self.theme["accent"])
         return button
 
+    def _day_name(self):
+        """"Today" when it is, the date when it is not.
+
+        The same page serves any day, so it has to say which one — a window
+        that silently shows last Wednesday looks exactly like one showing now.
+        """
+        return ("Today" if self.data.day == date.today()
+                else f"{self.data.day:%A %d %B}")
+
     def _bind_keys(self):
-        self.master.bind("<Escape>", lambda _e: self._close())
-        self.master.bind("<Control-Return>", lambda _e: self._submit())
-        self.master.bind("<Control-Tab>", lambda _e: self._toggle_tab())
+        # Bound on the toplevel: this view may be a frame inside one, and a
+        # frame never receives keystrokes.
+        window = self.master.winfo_toplevel()
+        window.bind("<Escape>", lambda _e: self._close())
+        window.bind("<Control-Return>", lambda _e: self._submit())
+        window.bind("<Control-Tab>", lambda _e: self._toggle_tab())
 
     # -- rendering ----------------------------------------------------------
 
@@ -670,8 +678,9 @@ class DayWindow:
         self._changed()
 
     def _close(self):
+        # The view does not destroy anything; whoever is hosting it decides
+        # whether closing means going back, hiding, or leaving.
         self.callbacks.on_close()
-        self.master.destroy()
 
     def _changed(self, rerender=True):
         self.callbacks.on_change(self.data.record)

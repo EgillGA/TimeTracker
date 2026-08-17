@@ -49,18 +49,28 @@ moved on without it.
 | `py -m timetracker --preview` | Day window with invented data, no network |
 | `py -m timetracker --auto` | What the scheduled task runs |
 
+## One window
+
+TimeTracker is one program in one window. The day and the week are pages inside
+it, so moving between them is navigation rather than a pile of windows to sort
+through.
+
+The timer strip is the single exception: borderless and always on top over the
+clock is not something a page inside a normal window can be.
+
 ## The week
 
-The **▦ Week** button at the top of the day window opens Monday to Friday with
+The **▦ Week** button at the top of the day page opens Monday to Friday with
 what each day holds against its eight hours, and the week's shortfall at the
 bottom.
 
-Click any day to open it in place. Hours already in Tempo are shown as text and
-never in a box — back-dated entry is where logging the same hours twice is
-easiest to do and hardest to notice. Beside them is an empty box that takes
-more time for the same issue, and a button that adds only what you have typed.
+Click any day and you get the ordinary day page for that date — the same page,
+the same tabs, the same rules. There is no separate back-dated editor, which
+means there is only one place the protections against logging the same hours
+twice have to be right. Hours already in Tempo show as text beside an empty box
+that adds new time to the same issue.
 
-Fridays open here rather than on the day, because on a Friday the four days
+Fridays open on the week rather than the day, because by Friday the four days
 behind you matter more than today and are the last chance to fix them.
 
 ## The live timer
