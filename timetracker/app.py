@@ -15,7 +15,7 @@ from timetracker.dayview import DayData
 from timetracker.duration import format_clock
 from timetracker.http import ApiError
 from timetracker.jira import JiraClient
-from timetracker.store import Store
+from timetracker.store import Store, recoverable_seconds
 from timetracker.tempo import TempoClient
 
 
@@ -31,8 +31,12 @@ class AppService:
 
     def load_day(self, day=None):
         day = day or date.today()
+
+        recovered = self.recover_interrupted_timer()
         record = self.store.load_day(day)
         notes = list(self.store.warnings)
+        if recovered:
+            notes.append(recovered)
 
         (assigned, recent), problem = self._candidates()
         if problem:
@@ -153,10 +157,41 @@ class AppService:
     def lookup(self, key):
         """Resolve a hand-typed issue key, or None if it is not a real issue."""
         try:
-            return {"key": key.upper(), "id": self.jira.issue_id(key),
-                    "summary": ""}
+            return self.jira.issue(key)
         except ApiError:
             return None
+
+    def recover_interrupted_timer(self):
+        """Fold a timer that was running when we last closed into the day.
+
+        The recovered time is bounded by the last heartbeat, never the wall
+        clock, and is flagged unconfirmed so it shows amber in the window. It
+        is added rather than offered in a dialog because nothing reaches Tempo
+        without pressing Submit — the row is right there to correct or remove.
+        """
+        state = self.store.load_timer()
+        if not state:
+            return ""
+
+        seconds = recoverable_seconds(state)
+        self.store.clear_timer()
+        if seconds < 60:
+            return ""
+
+        record = self.store.load_day(date.today())
+        dayview.add_segment(record, {
+            "issue_key": state["issue_key"],
+            "issue_id": state.get("issue_id", 0),
+            "summary": state.get("summary", ""),
+            "seconds": seconds,
+            "start": state["started_at"],
+            "end": state.get("last_heartbeat", state["started_at"]),
+            "confirmed": False,
+        })
+        self.store.save_day(record)
+
+        return (f"A timer for {state['issue_key']} was still running when "
+                f"TimeTracker last closed. Its time has been added — check it.")
 
     def week_totals(self, start, end):
         """Submitted seconds per date, straight from Tempo."""

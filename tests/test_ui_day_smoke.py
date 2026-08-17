@@ -73,11 +73,24 @@ class DayWindowSmoke(unittest.TestCase):
         return self.type_into(window, issue_key, text)
 
     def type_into(self, window, issue_key, text):
-        """Type into an hours field the way a person would."""
+        """Type into an hours field the way a person would.
+
+        Focus is a machine-wide resource and other tests in this file own
+        windows too, so focus_force does not always land on the first pump of
+        the event loop. Waiting for it makes the difference between a suite
+        that fails one run in four and one that means something.
+        """
         field = window._fields[issue_key]
         field.delete(0, "end")
         field.focus_force()
-        self.root.update()
+
+        for _ in range(100):
+            self.root.update()
+            if self.root.focus_get() is field:
+                break
+        else:
+            self.fail("could not give the hours field focus")
+
         field.insert(0, text)
         field.event_generate("<KeyRelease>", keysym=text[-1])
         self.root.update()
@@ -129,14 +142,16 @@ class DayWindowSmoke(unittest.TestCase):
         self.build(data)
 
     def test_both_themes_build(self):
+        # A Toplevel rather than a second tk.Tk: two Tk instances in one
+        # process fight over focus, which is what made the typing tests flaky.
         for name in ("dark", "light"):
             with self.subTest(theme=name):
-                root = tk.Tk()
-                root.withdraw()
-                DayWindow(root, DayData(day=date(2026, 8, 17), record=record()),
+                window = tk.Toplevel(self.root)
+                DayWindow(window,
+                          DayData(day=date(2026, 8, 17), record=record()),
                           DayCallbacks(), Theme(name))
-                root.update()
-                root.destroy()
+                self.root.update()
+                window.destroy()
 
     def test_the_internal_tab_builds(self):
         window = self.build()

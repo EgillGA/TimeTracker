@@ -61,10 +61,19 @@ def candidate_issues(assigned, recent):
     return combined
 
 
-def _entry_for(record, issue_key):
+def _entry_for(record, issue_key, pending_only=False):
+    """The row for an issue.
+
+    `pending_only` skips rows already accepted by Tempo. An issue can hold two
+    rows — one submitted, one still being worked on — and anything that writes
+    must find the second, not the first.
+    """
     for entry in record["entries"]:
-        if entry["issue_key"].upper() == issue_key.upper():
-            return entry
+        if entry["issue_key"].upper() != issue_key.upper():
+            continue
+        if pending_only and entry.get("submitted", False):
+            continue
+        return entry
     return None
 
 
@@ -173,6 +182,48 @@ def remove_entry(record, issue_key):
     return record
 
 
+def add_segment(record, piece):
+    """Fold a finished timer run into the day.
+
+    Time lands on the issue's pending row, or a new one if there isn't a
+    pending row. That second case matters: if the issue's hours are already in
+    Tempo, adding to that row would leave it marked submitted and the new time
+    would never be sent anywhere.
+
+    A row that holds any unvouched-for time stays flagged even when good time
+    is added afterwards — the warning is about the part that needs checking.
+    """
+    entry = _entry_for(record, piece["issue_key"], pending_only=True)
+
+    if entry is None:
+        entry = {
+            "issue_key": piece["issue_key"],
+            "issue_id": piece.get("issue_id", 0),
+            "summary": piece.get("summary", ""),
+            "seconds": 0,
+            "note": "",
+            "source": "timer",
+            "confirmed": True,
+            "submitted": False,
+            "tempo_worklog_id": None,
+        }
+        record["entries"].append(entry)
+
+    entry["seconds"] += int(piece["seconds"])
+    entry["source"] = "timer"
+    entry["confirmed"] = entry.get("confirmed", True) and piece.get(
+        "confirmed", True
+    )
+
+    record["segments"].append({
+        "issue_key": piece["issue_key"],
+        "start": piece["start"],
+        "end": piece["end"],
+        "confirmed": piece.get("confirmed", True),
+    })
+    return record
+
+
 def total_seconds(record):
     return sum(entry.get("seconds", 0) for entry in record["entries"])
 
@@ -256,7 +307,7 @@ def entries_to_submit(record):
 
 def mark_submitted(record, issue_key, worklog_id):
     """Record that Tempo accepted a row, so it is never sent again."""
-    entry = _entry_for(record, issue_key)
+    entry = _entry_for(record, issue_key, pending_only=True)
     if entry is not None:
         entry["submitted"] = True
         entry["tempo_worklog_id"] = worklog_id

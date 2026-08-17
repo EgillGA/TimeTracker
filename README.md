@@ -44,8 +44,29 @@ moved on without it.
 | Command | What happens |
 |---|---|
 | `py -m timetracker` | Day window |
+| `py -m timetracker --timer AP-7500` | Start the live timer on an issue |
 | `py -m timetracker --preview` | Day window with invented data, no network |
 | `py -m timetracker --auto` | What the scheduled task runs |
+
+## The live timer
+
+Press `▶` on any issue in the day window, or start one from the command line.
+A thin strip parks in the bottom-right corner above the clock, showing the
+issue and the elapsed time. Hovering reveals pause and stop.
+
+Every hour it expands in place to ask whether that is still what you are
+doing. It asks; it never overrules. Ignore it and the timer keeps running, but
+the time is flagged and shows amber in the day window rather than being
+quietly billed.
+
+Stopping adds the time to today and opens the day window, so stopping the
+timer is also how the day gets closed out. Nothing reaches Tempo until you
+press Submit.
+
+If the process dies while a timer is running, the next launch folds the time
+back in — bounded by the last heartbeat rather than the wall clock, so a
+machine that slept through lunch does not bill for it. Recovered time is
+always flagged.
 
 ## Appearing on its own
 
@@ -108,7 +129,8 @@ out, is in
 ## Status
 
 Working: the day window against live Jira and Tempo, submission with real
-start times, the scheduled task, configuration, storage, week arithmetic and
-duration parsing.
+start times, the scheduled task, the live timer with its hourly check-in and
+crash recovery, configuration, storage, week arithmetic and duration parsing.
 
-Not yet built: the Friday week overview, and the live timer strip.
+Not yet built: the Friday week overview. Until it exists, Fridays fall through
+to the day window.

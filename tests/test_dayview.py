@@ -8,6 +8,7 @@ verify by looking at it.
 import unittest
 
 from timetracker.dayview import (
+    add_segment,
     candidate_issues,
     entries_to_submit,
     fill_remaining,
@@ -255,6 +256,82 @@ class RemovingARow(unittest.TestCase):
         record = day([entry("AP-1", HOUR)])
         record = remove_entry(record, "ap-1")
         self.assertEqual(record["entries"], [])
+
+
+class AddingTimeFromTheTimer(unittest.TestCase):
+    def piece(self, key, seconds, confirmed=True):
+        return {"issue_key": key, "issue_id": 1, "summary": key,
+                "seconds": seconds, "start": "2026-08-17T09:00:00",
+                "end": "2026-08-17T10:00:00", "confirmed": confirmed}
+
+    def test_a_new_issue_gets_a_row(self):
+        record = add_segment(day(), self.piece("AP-7500", HOUR))
+
+        self.assertEqual(record["entries"][0]["issue_key"], "AP-7500")
+        self.assertEqual(record["entries"][0]["seconds"], HOUR)
+
+    def test_time_is_added_to_what_is_already_there(self):
+        # Two stints on the same issue are one row of two hours, not two rows.
+        record = add_segment(day([entry("AP-7500", HOUR)]),
+                             self.piece("AP-7500", 2 * HOUR))
+
+        self.assertEqual(len(record["entries"]), 1)
+        self.assertEqual(record["entries"][0]["seconds"], 3 * HOUR)
+
+    def test_the_row_is_marked_as_coming_from_the_timer(self):
+        record = add_segment(day(), self.piece("AP-7500", HOUR))
+        self.assertEqual(record["entries"][0]["source"], "timer")
+
+    def test_unattended_time_flags_the_row(self):
+        record = add_segment(day(), self.piece("AP-7500", HOUR, confirmed=False))
+        self.assertFalse(record["entries"][0]["confirmed"])
+
+    def test_a_flagged_row_stays_flagged_when_good_time_is_added(self):
+        # Part of the row is still unvouched-for; the warning has to survive.
+        record = add_segment(day(), self.piece("AP-7500", HOUR, confirmed=False))
+        record = add_segment(record, self.piece("AP-7500", HOUR, confirmed=True))
+
+        self.assertFalse(record["entries"][0]["confirmed"])
+
+    def test_the_run_is_kept_as_an_audit_trail(self):
+        record = add_segment(day(), self.piece("AP-7500", HOUR))
+
+        self.assertEqual(len(record["segments"]), 1)
+        self.assertEqual(record["segments"][0]["start"], "2026-08-17T09:00:00")
+
+    def test_time_tracked_after_submitting_gets_its_own_row(self):
+        """The important one.
+
+        If more time is tracked against an issue whose hours are already in
+        Tempo, adding it to that row would leave it marked submitted, and the
+        new hour would never be sent anywhere. It needs a row of its own."""
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=46604)])
+        record = add_segment(record, self.piece("AP-7500", HOUR))
+
+        self.assertEqual(len(record["entries"]), 2)
+        self.assertEqual(record["entries"][0]["seconds"], 3 * HOUR)
+        self.assertTrue(record["entries"][0]["submitted"])
+        self.assertEqual(record["entries"][1]["seconds"], HOUR)
+        self.assertFalse(record["entries"][1]["submitted"])
+
+    def test_that_extra_row_is_the_one_that_gets_submitted(self):
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=46604)])
+        record = add_segment(record, self.piece("AP-7500", HOUR))
+
+        pending = entries_to_submit(record)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["seconds"], HOUR)
+
+    def test_marking_submitted_finds_the_pending_row_not_the_done_one(self):
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=46604)])
+        record = add_segment(record, self.piece("AP-7500", HOUR))
+        record = mark_submitted(record, "AP-7500", 46700)
+
+        self.assertEqual(record["entries"][0]["tempo_worklog_id"], 46604)
+        self.assertEqual(record["entries"][1]["tempo_worklog_id"], 46700)
 
 
 class Totals(unittest.TestCase):

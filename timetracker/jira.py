@@ -57,18 +57,20 @@ class JiraClient:
 
         return issues
 
+    def issue(self, key):
+        """One issue as `{key, id, summary}`, looked up if not already known."""
+        try:
+            payload = self._get(f"/rest/api/3/issue/{key}?fields=summary")
+        except ApiError as error:
+            raise ApiError(f"Couldn't find issue {key}. {error}") from None
+        return self._normalise(payload)
+
     def issue_id(self, key):
         """The numeric id for an issue key, from cache or from Jira."""
         cached = self._ids.get(key.upper())
         if cached is not None:
             return cached
-
-        try:
-            payload = self._get(f"/rest/api/3/issue/{key}?fields=summary")
-        except ApiError as error:
-            raise ApiError(f"Couldn't find issue {key}. {error}") from None
-
-        return self._normalise(payload)["id"]
+        return self.issue(key)["id"]
 
     # -- internals ----------------------------------------------------------
 

@@ -29,6 +29,13 @@ def main(argv):
     if "--auto" in argv:
         return run_auto()
 
+    if "--timer" in argv:
+        index = argv.index("--timer")
+        if index + 1 >= len(argv):
+            print("--timer needs an issue key, e.g. --timer AP-7500")
+            return 2
+        return run_timer(argv[index + 1])
+
     if "--week" in argv:
         from timetracker import ui_notice
 
@@ -61,32 +68,46 @@ def run_auto():
         return open_day()
 
 
-def open_day():
+def _service_or_setup(theme):
     from timetracker import app, ui_notice
-    from timetracker.config import MissingCredentials, load_config
-    from timetracker.theme import Theme
-
-    theme = Theme(load_config(ROOT).theme)
+    from timetracker.config import MissingCredentials
 
     try:
-        service = app.build(ROOT)
+        return app.build(ROOT)
     except MissingCredentials as error:
         ui_notice.show("TimeTracker needs setting up", str(error),
                        open_path=ROOT / "credentials.toml", theme=theme)
+        return None
+
+
+def open_day():
+    from timetracker.config import load_config
+    from timetracker.theme import Theme
+    from timetracker.ui_day import DayCallbacks, DayWindow
+
+    config = load_config(ROOT)
+    theme = Theme(config.theme)
+
+    service = _service_or_setup(theme)
+    if service is None:
         return 1
 
     data = service.load_day()
-
-    from timetracker.ui_day import DayCallbacks, DayWindow
-
     root = tk.Tk()
+
+    def start_timer(issue):
+        # The day window makes way for the strip: the point of starting a
+        # timer is to get back to work, not to keep a form open.
+        root.destroy()
+        run_timer(issue["key"])
+
     DayWindow(
         root, data,
         DayCallbacks(
             on_change=service.save,
             on_submit=lambda record: service.submit(record, data.day),
             on_lookup=service.lookup,
-            on_start_timer=lambda issue: _timer_not_ready(theme),
+            on_start_timer=start_timer,
         ),
         theme,
     )
@@ -94,15 +115,52 @@ def open_day():
     return 0
 
 
-def _timer_not_ready(theme):
-    from timetracker import ui_notice
+def run_timer(issue_key):
+    """Start the strip on an issue and stay running until it is stopped."""
+    from timetracker import dayview, ui_notice
+    from timetracker.config import load_config
+    from timetracker.store import Store
+    from timetracker.theme import Theme
+    from timetracker.ui_strip import StripCallbacks, TimerStrip
 
-    ui_notice.show(
-        "The live timer is not built yet",
-        "Starting a timer from an issue arrives in a later step.\n\n"
-        "For now, type the hours straight into the box.",
-        theme=theme,
+    config = load_config(ROOT)
+    theme = Theme(config.theme)
+
+    service = _service_or_setup(theme)
+    if service is None:
+        return 1
+
+    issue = service.lookup(issue_key)
+    if issue is None:
+        ui_notice.show("No such issue",
+                       f"Couldn't find {issue_key} in Jira.", theme=theme)
+        return 1
+
+    store = Store()
+    root = tk.Tk()
+    root.withdraw()
+
+    def on_stop(piece):
+        record = store.load_day(date.today())
+        dayview.add_segment(record, piece)
+        store.save_day(record)
+        store.clear_timer()
+        root.destroy()
+        # Stopping is how a day gets closed out, so the window that closes it
+        # is what comes next.
+        open_day()
+
+    TimerStrip(
+        root, issue, config,
+        StripCallbacks(
+            on_persist=store.save_timer,
+            on_stop=on_stop,
+            on_open_day=lambda: None,
+        ),
+        theme,
     )
+    root.mainloop()
+    return 0
 
 
 if __name__ == "__main__":

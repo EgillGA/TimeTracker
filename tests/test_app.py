@@ -52,13 +52,17 @@ class FakeJira:
         return []
 
     def issue_id(self, key):
+        return self.issue(key)["id"]
+
+    def issue(self, key):
         # Every method on the real client makes a request, so every method on
         # the fake has to be able to fail the way the network does.
         if self.fail_with:
             raise self.fail_with
         if key.upper() not in self.ids:
             raise ApiError(f"Couldn't find issue {key}.")
-        return self.ids[key.upper()]
+        return {"key": key.upper(), "id": self.ids[key.upper()],
+                "summary": "LOPA change"}
 
 
 class FakeTempo:
@@ -346,10 +350,68 @@ class WhenSubmissionPartlyFails(ServiceTestCase):
         self.assertFalse({r["issue_key"]: r for r in results}["AP-9999"]["ok"])
 
 
+class RecoveringAnInterruptedTimer(ServiceTestCase):
+    """A timer running when the process died still represents real work.
+    It is added to the day, bounded by the last heartbeat, and flagged."""
+
+    def running_timer(self, started, heartbeat):
+        self.store.save_timer({
+            "issue_key": "AP-7500", "issue_id": 7500, "summary": "LOPA",
+            "started_at": started, "last_heartbeat": heartbeat,
+            "paused_total_seconds": 0, "paused_at": None,
+        })
+
+    def test_the_time_is_added_to_today(self):
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T10:30:00")
+        data = self.service().load_day(TODAY)
+
+        self.assertEqual(data.record["entries"][0]["issue_key"], "AP-7500")
+        self.assertEqual(data.record["entries"][0]["seconds"], 90 * 60)
+
+    def test_it_is_flagged_rather_than_trusted(self):
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T10:30:00")
+        data = self.service().load_day(TODAY)
+        self.assertFalse(data.record["entries"][0]["confirmed"])
+
+    def test_the_window_is_told_what_happened(self):
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T10:30:00")
+        self.assertIn("AP-7500", self.service().load_day(TODAY).banner)
+
+    def test_a_sleeping_machine_does_not_bill_for_the_nap(self):
+        # Four hours of wall clock, thirty minutes of heartbeat.
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T09:30:00")
+        data = self.service().load_day(TODAY)
+        self.assertEqual(data.record["entries"][0]["seconds"], 30 * 60)
+
+    def test_the_timer_is_cleared_so_it_recovers_only_once(self):
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T10:30:00")
+        self.service().load_day(TODAY)
+
+        self.assertIsNone(self.store.load_timer())
+        second = self.service().load_day(TODAY)
+        self.assertEqual(len(second.record["entries"]), 1)
+
+    def test_a_trivial_amount_is_discarded(self):
+        # Starting a timer and immediately crashing is not ten seconds of work.
+        self.running_timer("2026-08-17T09:00:00", "2026-08-17T09:00:10")
+        data = self.service().load_day(TODAY)
+
+        self.assertEqual(data.record["entries"], [])
+        self.assertEqual(data.banner, "")
+
+    def test_no_timer_means_no_banner(self):
+        self.assertEqual(self.service().load_day(TODAY).banner, "")
+
+
 class LookingUpATypedKey(ServiceTestCase):
     def test_a_known_key_comes_back_with_its_id(self):
         issue = self.service().lookup("AP-7500")
         self.assertEqual(issue["id"], 7500)
+
+    def test_the_summary_comes_back_too(self):
+        # The strip shows it, and so does the row it creates.
+        issue = self.service().lookup("AP-7500")
+        self.assertEqual(issue["summary"], "LOPA change")
 
     def test_an_unknown_key_is_none_rather_than_an_exception(self):
         self.assertIsNone(self.service().lookup("AP-99999"))
