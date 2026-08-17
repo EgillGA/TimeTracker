@@ -7,7 +7,7 @@ Day records are treated as mutable and returned for chaining; the window holds
 exactly one and writes it to disk after every change.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 
@@ -31,6 +31,7 @@ class DayData:
     recent: list = field(default_factory=list)
     internal: list = field(default_factory=list)
     target_seconds: int = 8 * 3600
+    suggestion_count: int = 5
     banner: str = ""
 
 
@@ -40,9 +41,11 @@ class Row:
     issue_id: int
     summary: str
     seconds: int = 0
+    logged_seconds: int = 0
     from_timer: bool = False
     unconfirmed: bool = False
     submitted: bool = False
+    has_pending: bool = False
     on_day: bool = False
 
 
@@ -94,11 +97,57 @@ def _row_from_entry(entry):
 
 
 def tracked_rows(record):
-    """Everything already on today, in the order it was added."""
-    return [_row_from_entry(entry) for entry in record["entries"]]
+    """Everything on today, one row per issue, in the order it was added.
+
+    An issue can hold two entries — hours already in Tempo, and more hours
+    still pending. They are one thing you worked on, so they share a row: the
+    logged part shown as text, the pending part in a box that still takes
+    input. Two rows for one issue reads like a bug.
+    """
+    rows = {}
+    order = []
+
+    for entry in record["entries"]:
+        key = entry["issue_key"].upper()
+        if key not in rows:
+            order.append(key)
+            rows[key] = Row(
+                issue_key=entry["issue_key"],
+                issue_id=entry.get("issue_id", 0),
+                summary=entry.get("summary", ""),
+                on_day=True,
+            )
+
+        row = rows[key]
+        seconds = entry.get("seconds", 0)
+        submitted = entry.get("submitted", False)
+        from_timer = entry.get("source") == "timer"
+
+        rows[key] = replace(
+            row,
+            seconds=row.seconds + (0 if submitted else seconds),
+            logged_seconds=row.logged_seconds + (seconds if submitted else 0),
+            summary=row.summary or entry.get("summary", ""),
+            from_timer=row.from_timer or from_timer,
+            # Typed hours were confirmed by the act of typing them; only the
+            # timer can produce time nobody vouched for.
+            unconfirmed=row.unconfirmed or (
+                from_timer and not entry.get("confirmed", True)
+            ),
+            submitted=row.submitted or submitted,
+            has_pending=row.has_pending or not submitted,
+        )
+
+    return [rows[key] for key in order]
 
 
 def _offerable(record, issues, excluded_keys):
+    """Issues worth offering: anything not already on today's list.
+
+    Issues whose hours are already in Tempo stay off this list even though
+    more time can still be added to them — their tracked row takes it
+    directly, so offering them here too would show the same issue twice.
+    """
     return [
         Row(issue_key=issue["key"], issue_id=issue["id"],
             summary=issue.get("summary", ""))
@@ -148,7 +197,9 @@ def set_hours(record, issue, seconds, source="manual", note=None):
     A row set to zero is kept rather than removed: deleting it mid-keystroke
     while someone clears a field to retype it would be hostile.
     """
-    entry = _entry_for(record, issue["key"])
+    # Pending only: a row already accepted by Tempo cannot be edited, so more
+    # hours on that issue become a new row that can actually be sent.
+    entry = _entry_for(record, issue["key"], pending_only=True)
     if entry is None:
         record["entries"].append({
             "issue_key": issue["key"],

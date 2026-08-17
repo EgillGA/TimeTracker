@@ -350,6 +350,55 @@ class DayWindowSmoke(unittest.TestCase):
         self.root.update()
         self.assertNotIn("AP-7500", window.row_status)
 
+    def submitted_day(self):
+        return DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AP-7492", "issue_id": 7492,
+                            "summary": "EEL change", "seconds": 4 * HOUR,
+                            "source": "manual", "confirmed": True,
+                            "submitted": True, "tempo_worklog_id": 46604,
+                            "note": ""}]),
+        )
+
+    def test_an_already_submitted_issue_still_takes_more_hours(self):
+        # Four hours are in Tempo; the afternoon on the same issue must be
+        # loggable without hunting for a workaround.
+        data = self.submitted_day()
+        window = self.build(data)
+
+        self.assertIn("AP-7492", window._fields)
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertIn("4:00 logged", labels)
+
+    def test_hours_typed_on_a_submitted_issue_become_a_sendable_row(self):
+        data = self.submitted_day()
+        window = self.build(data)
+        self.type_into(window, "AP-7492", "2")
+
+        pending = dayview.entries_to_submit(data.record)
+        self.assertEqual(len(pending), 1)
+        self.assertEqual(pending[0]["seconds"], 2 * HOUR)
+        self.assertEqual(dayview.total_seconds(data.record), 6 * HOUR)
+
+    def test_a_submitted_issue_shows_as_one_row_not_two(self):
+        data = self.submitted_day()
+        window = self.build(data)
+        self.type_into(window, "AP-7492", "2")
+        window.refresh()
+        self.root.update()
+
+        keys = [w.cget("text") for w in _descendants(self.root)
+                if isinstance(w, tk.Label) and w.cget("text") == "AP-7492"]
+        self.assertEqual(len(keys), 1)
+
+    def test_the_logged_part_cannot_be_removed(self):
+        # Its hours are in Tempo and nothing here can unlog them.
+        window = self.build(self.submitted_day())
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertNotIn("✕", labels)
+
     def test_there_is_no_scrollbar(self):
         window = self.build()
         scrollbars = [
@@ -403,7 +452,37 @@ class DayWindowSmoke(unittest.TestCase):
                   if isinstance(w, tk.Label)]
 
         self.assertIn("PROJECTS", labels)
-        self.assertIn("SUGGESTIONS", labels)
+        # Suggestions is a dropdown: shut, with its count on the heading.
+        suggestions = [text for text in labels if "SUGGESTIONS" in text]
+        self.assertEqual(len(suggestions), 1)
+        self.assertIn("▸", suggestions[0])
+        self.assertNotIn("AP-9000", labels)
+
+    def test_the_suggestions_dropdown_opens(self):
+        window = self.build(DayData(
+            day=date(2026, 8, 17), record=record(),
+            assigned=[{"key": "AP-7500", "id": 7500, "summary": "LOPA"}],
+            recent=[{"key": "AP-9000", "id": 9000, "summary": "someone else's"}],
+        ))
+        window._toggle_section("Suggestions")
+        self.root.update()
+
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertIn("AP-9000", labels)
+        self.assertIn("▾", [t for t in labels if "SUGGESTIONS" in t][0])
+
+    def test_suggestions_are_capped(self):
+        many = [{"key": f"AP-{n}", "id": n, "summary": f"issue {n}"}
+                for n in range(20)]
+        window = self.build(DayData(day=date(2026, 8, 17), record=record(),
+                                    recent=many, suggestion_count=5))
+        window._toggle_section("Suggestions")
+        self.root.update()
+
+        labels = [w.cget("text") for w in _descendants(self.root)
+                  if isinstance(w, tk.Label)]
+        self.assertEqual(len([t for t in labels if t.startswith("AP-")]), 5)
 
     def test_ctrl_tab_switches_tabs(self):
         window = self.build()

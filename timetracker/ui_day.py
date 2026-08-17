@@ -48,6 +48,7 @@ class DayWindow:
         self.tab = MY_WORK
         self.row_status = {}
         self.expanded = {}
+        self.suggestion_count = getattr(data, "suggestion_count", 5)
         self._fields = {}
 
         master.title(f"TimeTracker — {data.day:%A %d %B}")
@@ -254,29 +255,44 @@ class DayWindow:
                 dayview.project_rows(self.data.record, self.data.assigned,
                                      self.data.internal),
             )
+            # Suggestions stay shut unless asked for. They are a fallback for
+            # work that is not assigned to you, and an open list of them
+            # buries the Projects you actually came here for.
             self._collapsible(
                 "Suggestions",
                 dayview.suggestion_rows(self.data.record, self.data.recent,
-                                        self.data.assigned, self.data.internal),
+                                        self.data.assigned,
+                                        self.data.internal)[:self.suggestion_count],
+                closed_by_default=True,
             )
             self._add_by_key()
         else:
             for row in dayview.internal_rows(self.data.record, self.data.internal):
                 self._row(row)
 
-    def _collapsible(self, title, rows):
-        """A section that shows its first few rows and hides the tail.
+    def _collapsible(self, title, rows, closed_by_default=False):
+        """A section that can hide its rows behind its own heading.
 
-        Without a scrollbar there is nothing to hint that a long list
-        continues below the window, so the list says so itself.
+        Without a scrollbar there is nothing to hint that a list continues
+        below the window, so a section that is holding rows back says so.
         """
         if not rows:
             return
 
-        self._section(title)
+        # Untouched sections are closed. What "closed" means differs: an
+        # always-shown section still offers its first few rows, while a
+        # dropdown section shows none until asked.
         expanded = self.expanded.get(title, False)
-        visible = rows if expanded else rows[:COLLAPSED_ROWS]
 
+        if closed_by_default:
+            self._section(title, arrow="▾" if expanded else "▸",
+                          count=len(rows))
+            for row in (rows if expanded else []):
+                self._row(row)
+            return
+
+        self._section(title)
+        visible = rows if expanded else rows[:COLLAPSED_ROWS]
         for row in visible:
             self._row(row)
 
@@ -300,13 +316,25 @@ class DayWindow:
         self.expanded[title] = not self.expanded.get(title, False)
         self.refresh()
 
-    def _section(self, title):
+    def _section(self, title, arrow=None, count=None):
+        text = title.upper()
+        if arrow:
+            text = f"{arrow}  {text}" + (f"  ({count})" if count else "")
+
         label = tk.Label(
-            self.list_frame, text=title.upper(), bg=self.theme["bg"],
+            self.list_frame, text=text, bg=self.theme["bg"],
             fg=self.theme["text_muted"], font=self.theme.font("small"),
-            anchor="w",
+            anchor="w", cursor="hand2" if arrow else "",
         )
         label.pack(fill="x", pady=(self.theme.space["md"], self.theme.space["xs"]))
+
+        if arrow:
+            label.bind("<Button-1>",
+                       lambda _e, t=title: self._toggle_section(t))
+            label.bind("<Enter>", lambda _e, w=label: w.configure(
+                fg=self.theme["text"]))
+            label.bind("<Leave>", lambda _e, w=label: w.configure(
+                fg=self.theme["text_muted"]))
 
     def _row(self, row):
         frame = tk.Frame(self.list_frame, bg=self.theme["surface"],
@@ -344,7 +372,8 @@ class DayWindow:
         """Take a row off the day. Absent on rows already in Tempo — removing
         one would hide time that really is logged, and nothing here can unlog
         it."""
-        if not row.on_day or row.submitted:
+        # Nothing to remove on a row that is only what Tempo already holds.
+        if not row.on_day or not row.has_pending:
             return
 
         remove = tk.Label(frame, text="✕", bg=self.theme["surface"],
@@ -363,13 +392,6 @@ class DayWindow:
         if not row.on_day:
             return
 
-        if row.submitted:
-            tk.Label(frame, text=f"{format_hm(row.seconds)} logged",
-                     bg=self.theme["surface"], fg=self.theme["accent"],
-                     font=self.theme.font("number")).pack(
-                side="right", padx=self.theme.space["sm"])
-            return
-
         entry = tk.Entry(
             frame, width=self.theme.metrics["hours_field_width"],
             bg=self.theme["field_bg"], fg=self.theme["text"],
@@ -384,6 +406,14 @@ class DayWindow:
         entry.bind("<KeyRelease>", lambda _e, r=row, w=entry: self._typed(r, w))
         entry.bind("<Return>", lambda _e: self._submit())
         self._fields[row.issue_key.upper()] = entry
+
+        if row.logged_seconds:
+            # What Tempo already holds, shown but not editable — while the box
+            # beside it still takes more hours for the same issue.
+            tk.Label(frame, text=f"{format_hm(row.logged_seconds)} logged",
+                     bg=self.theme["surface"], fg=self.theme["accent"],
+                     font=self.theme.font("number")).pack(
+                side="right", padx=(0, self.theme.space["sm"]))
 
     def _badges(self, frame, row):
         for text, color, tip in (

@@ -83,16 +83,12 @@ def _service_or_setup(theme):
 def open_day():
     from timetracker.config import load_config
     from timetracker.theme import Theme
-    from timetracker.ui_day import DayCallbacks, DayWindow
 
-    config = load_config(ROOT)
-    theme = Theme(config.theme)
-
+    theme = Theme(load_config(ROOT).theme)
     service = _service_or_setup(theme)
     if service is None:
         return 1
 
-    data = service.load_day()
     root = tk.Tk()
 
     def start_timer(issue):
@@ -101,18 +97,26 @@ def open_day():
         root.destroy()
         run_timer(issue["key"])
 
-    DayWindow(
-        root, data,
+    _build_day_window(root, service, theme, on_start_timer=start_timer)
+    root.mainloop()
+    return 0
+
+
+def _build_day_window(master, service, theme, on_start_timer):
+    """Attach a day window to an existing root or toplevel."""
+    from timetracker.ui_day import DayCallbacks, DayWindow
+
+    data = service.load_day()
+    return DayWindow(
+        master, data,
         DayCallbacks(
             on_change=service.save,
             on_submit=lambda record: service.submit(record, data.day),
             on_lookup=service.lookup,
-            on_start_timer=start_timer,
+            on_start_timer=on_start_timer,
         ),
         theme,
     )
-    root.mainloop()
-    return 0
 
 
 def run_timer(issue_key):
@@ -139,6 +143,7 @@ def run_timer(issue_key):
     store = Store()
     root = tk.Tk()
     root.withdraw()
+    open_windows = {}
 
     def on_stop(piece):
         record = store.load_day(date.today())
@@ -150,12 +155,30 @@ def run_timer(issue_key):
         # is what comes next.
         open_day()
 
+    def on_open_day():
+        """Show the day alongside the running timer, without stopping it.
+
+        Opening it as a child of the strip's root rather than a new Tk keeps
+        one event loop and lets the timer carry on ticking while you look.
+        """
+        existing = open_windows.get("day")
+        if existing is not None and existing.winfo_exists():
+            existing.deiconify()
+            existing.lift()
+            existing.focus_force()
+            return
+
+        window = tk.Toplevel(root)
+        open_windows["day"] = window
+        _build_day_window(window, service, theme,
+                          on_start_timer=lambda _issue: None)
+
     TimerStrip(
         root, issue, config,
         StripCallbacks(
             on_persist=store.save_timer,
             on_stop=on_stop,
-            on_open_day=lambda: None,
+            on_open_day=on_open_day,
         ),
         theme,
     )

@@ -20,6 +20,8 @@ DEFAULTS = {
     "prompt_time": "15:30",
     "week_view_day": "friday",
     "day_starts_at": "08:00",
+    "suggestion_count": 5,
+    "suggestion_days": 30,
     "checkin_minutes": 60,
     "heartbeat_seconds": 30,
     "theme": "dark",
@@ -43,6 +45,10 @@ class Config:
     heartbeat_seconds: int
     theme: str
     internal_project: str
+    # Defaulted so that adding a setting does not break every caller that
+    # builds a Config, which is most of the test suite.
+    suggestion_count: int = DEFAULTS["suggestion_count"]
+    suggestion_days: int = DEFAULTS["suggestion_days"]
     jql: dict = field(default_factory=dict)
 
 
@@ -93,6 +99,12 @@ def load_config(root=None):
         prompt_time=schedule.get("prompt_time", DEFAULTS["prompt_time"]),
         week_view_day=schedule.get("week_view_day", DEFAULTS["week_view_day"]),
         day_starts_at=schedule.get("day_starts_at", DEFAULTS["day_starts_at"]),
+        suggestion_count=int(
+            data.get("suggestions", {}).get("count", DEFAULTS["suggestion_count"])
+        ),
+        suggestion_days=int(
+            data.get("suggestions", {}).get("days", DEFAULTS["suggestion_days"])
+        ),
         checkin_minutes=int(timer.get("checkin_minutes", DEFAULTS["checkin_minutes"])),
         heartbeat_seconds=int(
             timer.get("heartbeat_seconds", DEFAULTS["heartbeat_seconds"])

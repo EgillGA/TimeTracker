@@ -24,7 +24,8 @@ def config(**overrides):
         jira_site="https://apt-oz.atlassian.net", jira_email="egill@aptoz.is",
         hours_per_day=8.0, prompt_time="15:30", week_view_day="friday",
         checkin_minutes=60, heartbeat_seconds=30, theme="dark",
-        internal_project="AI", day_starts_at="08:00", jql=default_jql("AI"),
+        internal_project="AI", day_starts_at="08:00",
+        suggestion_count=5, suggestion_days=30, jql=default_jql("AI"),
     )
     values.update(overrides)
     return Config(**values)
@@ -66,10 +67,11 @@ class FakeJira:
 
 
 class FakeTempo:
-    def __init__(self, fail_for=None):
+    def __init__(self, fail_for=None, history=None):
         self.created = []
         self.fail_for = fail_for or {}
         self.next_id = 46580
+        self.history = history or []
 
     def create_worklog(self, account_id, issue_id, seconds, day, description,
                        start_time="08:00:00"):
@@ -84,6 +86,9 @@ class FakeTempo:
 
     def seconds_by_date(self, account_id, start, end):
         return {}
+
+    def worklogs(self, account_id, start, end):
+        return list(self.history)
 
 
 class ServiceTestCase(unittest.TestCase):
@@ -144,6 +149,77 @@ class LoadingTheDay(ServiceTestCase):
         self.store.save_day(self.day_with([self.entry("AP-7500", 3 * HOUR)]))
         data = self.service().load_day(TODAY)
         self.assertEqual(data.record["entries"][0]["seconds"], 3 * HOUR)
+
+
+class SuggestionsComeFromWhatYouActuallyLogged(ServiceTestCase):
+    """Not Jira activity — Tempo history. The issues you put hours against
+    last are the ones you are most likely to put hours against next."""
+
+    def worklog(self, issue_id, day):
+        return {"worklog_id": issue_id, "issue_id": issue_id,
+                "seconds": HOUR, "date": day, "description": ""}
+
+    def jira_knowing(self, *keys):
+        by_id = {"assignee = currentUser() AND statusCategory": [],
+                 "worklogAuthor": []}
+        found = [{"key": key, "id": index + 1, "summary": key}
+                 for index, key in enumerate(keys)]
+        by_id["id in ("] = found
+        return FakeJira(by_id)
+
+    def test_the_issues_most_recently_logged_to(self):
+        tempo = FakeTempo(history=[
+            self.worklog(1, date(2026, 8, 10)),
+            self.worklog(2, date(2026, 8, 14)),
+        ])
+        data = self.service(self.jira_knowing("AP-1", "AP-2"),
+                            tempo).load_day(TODAY)
+
+        self.assertEqual({i["key"] for i in data.recent}, {"AP-1", "AP-2"})
+
+    def test_only_the_five_most_recent(self):
+        tempo = FakeTempo(history=[
+            self.worklog(n, date(2026, 8, n)) for n in range(1, 10)
+        ])
+        jira = self.jira_knowing(*[f"AP-{n}" for n in range(1, 10)])
+        data = self.service(jira, tempo).load_day(TODAY)
+
+        self.assertEqual(len(data.recent), 5)
+
+    def test_the_count_is_configurable(self):
+        tempo = FakeTempo(history=[
+            self.worklog(n, date(2026, 8, n)) for n in range(1, 10)
+        ])
+        jira = self.jira_knowing(*[f"AP-{n}" for n in range(1, 10)])
+        data = self.service(jira, tempo, suggestion_count=3).load_day(TODAY)
+
+        self.assertEqual(len(data.recent), 3)
+
+    def test_an_issue_logged_twice_is_offered_once(self):
+        tempo = FakeTempo(history=[
+            self.worklog(1, date(2026, 8, 10)),
+            self.worklog(1, date(2026, 8, 14)),
+        ])
+        data = self.service(self.jira_knowing("AP-1"), tempo).load_day(TODAY)
+
+        self.assertEqual(len(data.recent), 1)
+
+    def test_no_history_means_no_suggestions(self):
+        data = self.service(self.jira_knowing(), FakeTempo()).load_day(TODAY)
+        self.assertEqual(data.recent, [])
+
+    def test_tempo_being_down_costs_only_the_suggestions(self):
+        # Projects and the internal tab still work; the day still opens.
+        class Broken(FakeTempo):
+            def worklogs(self, account_id, start, end):
+                raise NetworkError("tempo down")
+
+        jira = FakeJira({"assignee = currentUser() AND statusCategory": [
+            {"key": "AP-7500", "id": 7500, "summary": "LOPA"}]})
+        data = self.service(jira, Broken()).load_day(TODAY)
+
+        self.assertEqual(data.recent, [])
+        self.assertEqual([i["key"] for i in data.assigned], ["AP-7500"])
 
 
 class WhenJiraCannotBeReached(ServiceTestCase):

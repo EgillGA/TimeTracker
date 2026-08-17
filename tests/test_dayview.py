@@ -157,6 +157,54 @@ class RemovedIssuesGoBackWhereTheyBelong(unittest.TestCase):
         )
 
 
+class ATrackedIssueIsOneRow(unittest.TestCase):
+    """An issue with hours in Tempo and more hours pending is still one thing
+    you worked on. It shows as one row: what is logged, plus a box that takes
+    more. Two rows for one issue reads like a bug."""
+
+    def test_logged_and_pending_hours_share_a_row(self):
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=1),
+                      entry("AP-7500", HOUR)])
+        rows = tracked_rows(record)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].logged_seconds, 3 * HOUR)
+        self.assertEqual(rows[0].seconds, HOUR)
+
+    def test_a_submitted_issue_still_offers_a_box(self):
+        record = day([entry("AP-7500", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=1)])
+        rows = tracked_rows(record)
+
+        self.assertEqual(rows[0].logged_seconds, 3 * HOUR)
+        self.assertEqual(rows[0].seconds, 0)
+        self.assertFalse(rows[0].has_pending)
+
+    def test_a_pending_only_issue_has_nothing_logged(self):
+        rows = tracked_rows(day([entry("AP-7500", HOUR)]))
+
+        self.assertEqual(rows[0].logged_seconds, 0)
+        self.assertEqual(rows[0].seconds, HOUR)
+        self.assertTrue(rows[0].has_pending)
+
+    def test_separate_issues_stay_separate(self):
+        record = day([entry("AP-1", HOUR), entry("AP-2", HOUR)])
+        self.assertEqual([r.issue_key for r in tracked_rows(record)],
+                         ["AP-1", "AP-2"])
+
+    def test_the_order_they_were_added_is_kept(self):
+        record = day([entry("AP-2", HOUR), entry("AP-1", HOUR)])
+        self.assertEqual([r.issue_key for r in tracked_rows(record)],
+                         ["AP-2", "AP-1"])
+
+    def test_a_flag_on_either_part_flags_the_row(self):
+        record = day([entry("AP-7500", HOUR, submitted=True,
+                            tempo_worklog_id=1),
+                      entry("AP-7500", HOUR, source="timer", confirmed=False)])
+        self.assertTrue(tracked_rows(record)[0].unconfirmed)
+
+
 class TrackedRows(unittest.TestCase):
     def test_entries_become_rows_with_their_hours(self):
         rows = tracked_rows(day([entry("AP-7500", 3 * HOUR)]))
@@ -219,10 +267,35 @@ class EnteringHours(unittest.TestCase):
         record = set_hours(record, issue("AP-7500", 1), 0)
         self.assertEqual(len(record["entries"]), 1)
 
-    def test_editing_a_submitted_row_does_not_clear_its_worklog_id(self):
+    def test_hours_added_to_a_submitted_issue_start_a_new_row(self):
+        # The submitted row's hours are in Tempo and cannot change. More time
+        # on the same issue is more work, and needs a row that can be sent.
         record = day([entry("AP-7500", HOUR, submitted=True, tempo_worklog_id=5)])
         record = set_hours(record, issue("AP-7500", 1), 2 * HOUR)
+
+        self.assertEqual(len(record["entries"]), 2)
+        self.assertEqual(record["entries"][0]["seconds"], HOUR)
         self.assertEqual(record["entries"][0]["tempo_worklog_id"], 5)
+        self.assertEqual(record["entries"][1]["seconds"], 2 * HOUR)
+        self.assertFalse(record["entries"][1]["submitted"])
+
+    def test_that_new_row_is_the_one_edited_next_time(self):
+        record = day([entry("AP-7500", HOUR, submitted=True, tempo_worklog_id=5)])
+        record = set_hours(record, issue("AP-7500", 1), 2 * HOUR)
+        record = set_hours(record, issue("AP-7500", 1), 3 * HOUR)
+
+        self.assertEqual(len(record["entries"]), 2)
+        self.assertEqual(record["entries"][1]["seconds"], 3 * HOUR)
+
+    def test_a_submitted_issue_is_not_offered_a_second_time(self):
+        # More hours go straight into its tracked row, so listing it under
+        # Projects as well would show the same issue twice.
+        record = day([entry("AP-7500", HOUR, submitted=True, tempo_worklog_id=5)])
+        self.assertEqual(project_rows(record, [issue("AP-7500", 1)], []), [])
+
+    def test_an_issue_with_a_pending_row_is_not_offered_again(self):
+        record = day([entry("AP-7500", HOUR)])
+        self.assertEqual(project_rows(record, [issue("AP-7500", 1)], []), [])
 
 
 class RemovingARow(unittest.TestCase):

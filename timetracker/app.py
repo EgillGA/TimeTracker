@@ -7,7 +7,7 @@ suggestions are missing — a tool that refuses to start because a server is
 down is worse than no tool, because it also costs you the habit.
 """
 
-from datetime import date
+from datetime import date, timedelta
 
 from timetracker import dayview
 from timetracker.config import load_config, load_credentials
@@ -53,21 +53,66 @@ class AppService:
             recent=recent,
             internal=internal,
             target_seconds=int(self.config.hours_per_day * 3600),
+            suggestion_count=self.config.suggestion_count,
             banner=" ".join(notes),
         )
 
     def _candidates(self):
-        """Assigned and recent are fetched separately and stay separate.
+        """Projects is what you own. Suggestions is what you have been near.
 
-        They drive two different sections of the window, and merging them
-        would lose the only thing that tells Projects from Suggestions.
+        Two signals feed Suggestions: the issues you last logged hours to, and
+        the issues you have touched in Jira. Time logged leads, because having
+        put hours against something is the stronger hint that you are about to
+        again — but Jira activity catches the work that has not been logged
+        yet, which is exactly the work most at risk of being forgotten.
         """
         try:
             assigned = self.jira.search(self.config.jql["assigned"])
-            recent = self.jira.search(self.config.jql["recent"])
+            touched = self.jira.search(self.config.jql["recent"])
         except ApiError as error:
             return ([], []), f"{error} Showing what is saved locally."
+
+        recent = dayview.candidate_issues(self._recently_logged(), touched)
         return (assigned, recent), ""
+
+    def _recently_logged(self):
+        """The issues you last logged time to, most recent first.
+
+        Failing here costs only the Suggestions section — the day still opens
+        and Projects still works.
+        """
+        try:
+            history = self.tempo.worklogs(
+                self.account_id(),
+                date.today() - timedelta(days=self.config.suggestion_days),
+                date.today(),
+            )
+        except ApiError:
+            return []
+
+        wanted = self.config.suggestion_count
+        issue_ids = []
+        for worklog in sorted(history, key=lambda w: w["date"], reverse=True):
+            issue_id = worklog.get("issue_id")
+            if issue_id and issue_id not in issue_ids:
+                issue_ids.append(issue_id)
+            if len(issue_ids) >= wanted:
+                break
+
+        if not issue_ids:
+            return []
+
+        try:
+            found = self.jira.search(
+                f"id in ({', '.join(str(i) for i in issue_ids)})",
+                max_results=wanted,
+            )
+        except ApiError:
+            return []
+
+        # Jira returns them in its own order; restore most-recently-logged.
+        by_id = {issue["id"]: issue for issue in found}
+        return [by_id[i] for i in issue_ids if i in by_id]
 
     def _internal(self):
         try:
