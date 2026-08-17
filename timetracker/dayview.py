@@ -29,6 +29,9 @@ class DayData:
     record: dict
     assigned: list = field(default_factory=list)
     recent: list = field(default_factory=list)
+    #: Resolves the Suggestions list on demand. They sit behind a dropdown, so
+    #: the round trips behind them are not worth blocking the first paint on.
+    recent_provider: callable = None
     internal: list = field(default_factory=list)
     target_seconds: int = 8 * 3600
     suggestion_count: int = 5

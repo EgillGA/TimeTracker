@@ -10,6 +10,7 @@ down is worse than no tool, because it also costs you the habit.
 from datetime import date, datetime, timedelta
 
 from timetracker import dayview, timer, week
+from timetracker.cache import TimedCache
 from timetracker.week import weekdays_of_week
 from timetracker.config import load_config, load_credentials
 from timetracker.dayview import DayData
@@ -20,12 +21,19 @@ from timetracker.store import Store, recoverable_seconds
 from timetracker.tempo import TempoClient
 
 
+#: How long a fetched issue list is trusted. Long enough that navigating
+#: between the day and the week is instant, short enough that an issue created
+#: this morning turns up this afternoon.
+LOOKUP_TTL_SECONDS = 300
+
+
 class AppService:
-    def __init__(self, config, store, jira, tempo):
+    def __init__(self, config, store, jira, tempo, cache=None):
         self.config = config
         self.store = store
         self.jira = jira
         self.tempo = tempo
+        self.cache = cache or TimedCache(LOOKUP_TTL_SECONDS)
         self._account_id = None
 
     # -- loading ------------------------------------------------------------
@@ -46,11 +54,12 @@ class AppService:
         if recovered:
             notes.append(recovered)
 
-        (assigned, recent), problem = self._candidates()
+        lookups = self._lookups()
+        assigned, problem = self._unpack(lookups["assigned"], [])
         if problem:
-            notes.append(problem)
+            notes.append(f"{problem} Showing what is saved locally.")
 
-        internal, problem = self._internal()
+        internal, problem = self._internal_from(lookups["internal"])
         if problem and problem not in notes:
             notes.append(problem)
 
@@ -58,7 +67,10 @@ class AppService:
             day=day,
             record=record,
             assigned=assigned,
-            recent=recent,
+            # Suggestions are collapsed, so the two round trips behind them
+            # are not paid until the section is opened. They are already in
+            # flight by then, so opening it is normally instant anyway.
+            recent_provider=self.recent_issues,
             internal=internal,
             target_seconds=int(self.config.hours_per_day * 3600),
             suggestion_count=self.config.suggestion_count,
@@ -66,23 +78,61 @@ class AppService:
             banner=" ".join(notes),
         )
 
-    def _candidates(self):
-        """Projects is what you own. Suggestions is what you have been near.
+    def _lookups(self):
+        """The lookups a page cannot paint without, run at once and remembered.
 
-        Two signals feed Suggestions: the issues you last logged hours to, and
-        the issues you have touched in Jira. Time logged leads, because having
-        put hours against something is the stronger hint that you are about to
-        again — but Jira activity catches the work that has not been logged
-        yet, which is exactly the work most at risk of being forgotten.
+        Sequentially these cost over a second, and were paid again every time
+        the window moved between the day and the week. They do not depend on
+        each other, so they go together; the answers hold for minutes, so they
+        are cached; and everything not on screen yet is started in the
+        background rather than waited for.
         """
-        try:
-            assigned = self.jira.search(self.config.jql["assigned"])
-            touched = self.jira.search(self.config.jql["recent"])
-        except ApiError as error:
-            return ([], []), f"{error} Showing what is saved locally."
+        days = weekdays_of_week(date.today())
+        self.cache.prefetch({
+            "touched": lambda: self.jira.search(self.config.jql["recent"]),
+            "logged": self._recently_logged,
+            self._week_key(days[0], days[-1]):
+                lambda: self.tempo.seconds_by_date(self.account_id(),
+                                                   days[0], days[-1]),
+        })
 
-        recent = dayview.candidate_issues(self._recently_logged(), touched)
-        return (assigned, recent), ""
+        # The account id goes in with the searches rather than ahead of them.
+        # Resolving it first cost a whole round trip that nothing on the day
+        # page was waiting for. The background lookups that do need it resolve
+        # it themselves; the worst case is fetching it twice, in parallel.
+        found = self.cache.gather({
+            "account": self.account_id,
+            "assigned": lambda: self.jira.search(self.config.jql["assigned"]),
+            "internal": lambda: self.jira.search(self.config.jql["internal"]),
+        })
+        if not isinstance(found["account"], Exception):
+            self._account_id = found["account"]
+        return found
+
+    def recent_issues(self):
+        """Suggestions: what you last logged to, then what you touched.
+
+        Resolved when the section is opened rather than at load, and normally
+        already in flight by then.
+        """
+        found = self.cache.gather({
+            "logged": self._recently_logged,
+            "touched": lambda: self.jira.search(self.config.jql["recent"]),
+        })
+        logged, _ = self._unpack(found["logged"], [])
+        touched, _ = self._unpack(found["touched"], [])
+        return dayview.candidate_issues(logged, touched)
+
+    @staticmethod
+    def _week_key(start, end):
+        return f"week-totals:{start}:{end}"
+
+    @staticmethod
+    def _unpack(value, fallback):
+        """gather() hands back either a value or the exception that stopped it."""
+        if isinstance(value, Exception):
+            return fallback, str(value)
+        return value, ""
 
     def _recently_logged(self):
         """The issues you last logged time to, most recent first.
@@ -123,17 +173,20 @@ class AppService:
         by_id = {issue["id"]: issue for issue in found}
         return [by_id[i] for i in issue_ids if i in by_id]
 
-    def _internal(self):
-        try:
-            internal = self.jira.search(self.config.jql["internal"])
-        except ApiError as error:
+    def _internal_from(self, result):
+        """The internal list, or the last good copy of it.
+
+        Keys for admin work change about once a year, so a stale list is far
+        better than an empty tab when the network is down.
+        """
+        if isinstance(result, Exception):
             cached = self.store.load_internal_cache()
             if cached:
                 return cached, "Internal list may be out of date."
-            return [], f"{error} Showing what is saved locally."
+            return [], f"{result} Showing what is saved locally."
 
-        self.store.save_internal_cache(internal)
-        return internal, ""
+        self.store.save_internal_cache(result)
+        return result, ""
 
     def load_week(self, reference=None):
         """The week around `reference`, with every day editable.
@@ -153,13 +206,12 @@ class AppService:
             for day, record in records.items()
         }
 
-        assigned, internal = [], []
-        try:
-            assigned = self.jira.search(self.config.jql["assigned"])
-        except ApiError as error:
-            notes.append(f"{error} Showing what is saved locally.")
+        lookups = self._lookups()
+        assigned, problem = self._unpack(lookups["assigned"], [])
+        if problem:
+            notes.append(f"{problem} Showing what is saved locally.")
 
-        internal, problem = self._internal()
+        internal, problem = self._internal_from(lookups["internal"])
         if problem and problem not in notes:
             notes.append(problem)
 
@@ -210,6 +262,12 @@ class AppService:
             )
 
         self.store.save_day(record)
+
+        # Tempo's totals have just changed; a cached week would still show
+        # the figures from before the submission.
+        if any(result["ok"] for result in results):
+            self.forget_cached_lookups()
+
         return results
 
     def _day_start_seconds(self):
@@ -299,11 +357,28 @@ class AppService:
                 f"TimeTracker last closed. Its time has been added — check it.")
 
     def week_totals(self, start, end):
-        """Submitted seconds per date, straight from Tempo."""
+        """Submitted seconds per date, straight from Tempo.
+
+        Cached by range: moving between the day and the week asks for the same
+        one repeatedly, and it costs a round trip every time.
+        """
         try:
-            return self.tempo.seconds_by_date(self.account_id(), start, end)
+            return self.cache.get(
+                self._week_key(start, end),
+                lambda: self.tempo.seconds_by_date(self.account_id(),
+                                                   start, end),
+            )
         except ApiError:
             return {}
+
+    def forget_cached_lookups(self):
+        """Drop remembered lookups so the next load fetches fresh.
+
+        Called after submitting: Tempo's totals have just changed, and showing
+        the pre-submission figures back to someone who has just pressed Submit
+        would look like it had not worked.
+        """
+        self.cache.invalidate()
 
 
 def build(root):

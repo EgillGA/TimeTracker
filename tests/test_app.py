@@ -129,10 +129,12 @@ class LoadingTheDay(ServiceTestCase):
             "worklogAuthor": [
                 {"key": "AP-7429", "id": 7429, "summary": "PSU"}],
         })
-        data = self.service(jira).load_day(TODAY)
+        service = self.service(jira)
+        data = service.load_day(TODAY)
 
         self.assertEqual([i["key"] for i in data.assigned], ["AP-7500"])
-        self.assertEqual([i["key"] for i in data.recent], ["AP-7429"])
+        self.assertEqual([i["key"] for i in service.recent_issues()],
+                         ["AP-7429"])
 
     def test_reads_the_internal_project(self):
         jira = FakeJira({"project = AI": [
@@ -167,46 +169,55 @@ class SuggestionsComeFromWhatYouActuallyLogged(ServiceTestCase):
         by_id["id in ("] = found
         return FakeJira(by_id)
 
+    def test_they_are_not_fetched_until_asked_for(self):
+        """The section is collapsed, so the two round trips behind it must not
+        delay the window appearing."""
+        tempo = FakeTempo(history=[self.worklog(1, date(2026, 8, 10))])
+        data = self.service(self.jira_knowing("AP-1"), tempo).load_day(TODAY)
+
+        self.assertEqual(data.recent, [])
+        self.assertIsNotNone(data.recent_provider)
+
     def test_the_issues_most_recently_logged_to(self):
         tempo = FakeTempo(history=[
             self.worklog(1, date(2026, 8, 10)),
             self.worklog(2, date(2026, 8, 14)),
         ])
-        data = self.service(self.jira_knowing("AP-1", "AP-2"),
-                            tempo).load_day(TODAY)
+        service = self.service(self.jira_knowing("AP-1", "AP-2"), tempo)
+        service.load_day(TODAY)
 
-        self.assertEqual({i["key"] for i in data.recent}, {"AP-1", "AP-2"})
+        self.assertEqual({i["key"] for i in service.recent_issues()},
+                         {"AP-1", "AP-2"})
 
     def test_only_the_five_most_recent(self):
         tempo = FakeTempo(history=[
             self.worklog(n, date(2026, 8, n)) for n in range(1, 10)
         ])
         jira = self.jira_knowing(*[f"AP-{n}" for n in range(1, 10)])
-        data = self.service(jira, tempo).load_day(TODAY)
 
-        self.assertEqual(len(data.recent), 5)
+        self.assertEqual(len(self.service(jira, tempo).recent_issues()), 5)
 
     def test_the_count_is_configurable(self):
         tempo = FakeTempo(history=[
             self.worklog(n, date(2026, 8, n)) for n in range(1, 10)
         ])
         jira = self.jira_knowing(*[f"AP-{n}" for n in range(1, 10)])
-        data = self.service(jira, tempo, suggestion_count=3).load_day(TODAY)
+        service = self.service(jira, tempo, suggestion_count=3)
 
-        self.assertEqual(len(data.recent), 3)
+        self.assertEqual(len(service.recent_issues()), 3)
 
     def test_an_issue_logged_twice_is_offered_once(self):
         tempo = FakeTempo(history=[
             self.worklog(1, date(2026, 8, 10)),
             self.worklog(1, date(2026, 8, 14)),
         ])
-        data = self.service(self.jira_knowing("AP-1"), tempo).load_day(TODAY)
+        service = self.service(self.jira_knowing("AP-1"), tempo)
 
-        self.assertEqual(len(data.recent), 1)
+        self.assertEqual(len(service.recent_issues()), 1)
 
     def test_no_history_means_no_suggestions(self):
-        data = self.service(self.jira_knowing(), FakeTempo()).load_day(TODAY)
-        self.assertEqual(data.recent, [])
+        service = self.service(self.jira_knowing(), FakeTempo())
+        self.assertEqual(service.recent_issues(), [])
 
     def test_tempo_being_down_costs_only_the_suggestions(self):
         # Projects and the internal tab still work; the day still opens.
@@ -216,10 +227,11 @@ class SuggestionsComeFromWhatYouActuallyLogged(ServiceTestCase):
 
         jira = FakeJira({"assignee = currentUser() AND statusCategory": [
             {"key": "AP-7500", "id": 7500, "summary": "LOPA"}]})
-        data = self.service(jira, Broken()).load_day(TODAY)
+        service = self.service(jira, Broken())
+        data = service.load_day(TODAY)
 
-        self.assertEqual(data.recent, [])
         self.assertEqual([i["key"] for i in data.assigned], ["AP-7500"])
+        self.assertEqual(service.recent_issues(), [])
 
 
 class WhenJiraCannotBeReached(ServiceTestCase):

@@ -301,11 +301,12 @@ class DayWindow:
             )
             # Suggestions stay shut unless asked for. They are a fallback for
             # work that is not assigned to you, and an open list of them
-            # buries the Projects you actually came here for.
+            # buries the Projects you actually came here for. Their data is
+            # only fetched when the section is opened.
             self._collapsible(
                 "Suggestions",
                 dayview.suggestion_rows(
-                    self.data.record, self.data.recent, self.data.assigned,
+                    self.data.record, self._suggestions(), self.data.assigned,
                     self.data.internal, running,
                 )[:self.suggestion_count],
                 closed_by_default=True,
@@ -315,13 +316,29 @@ class DayWindow:
             for row in dayview.internal_rows(self.data.record, self.data.internal):
                 self._row(row)
 
+    def _suggestions(self):
+        """The Suggestions list, fetched the first time the section opens.
+
+        Closed, it costs nothing. Open, it is normally already in flight from
+        the prefetch, so the wait is imperceptible.
+        """
+        if not self.expanded.get("Suggestions", False):
+            return self.data.recent
+
+        if not self.data.recent and self.data.recent_provider is not None:
+            self.data.recent = self.data.recent_provider() or []
+        return self.data.recent
+
     def _collapsible(self, title, rows, closed_by_default=False):
         """A section that can hide its rows behind its own heading.
 
         Without a scrollbar there is nothing to hint that a list continues
         below the window, so a section that is holding rows back says so.
         """
-        if not rows:
+        # A dropdown section still shows its heading when empty: it may simply
+        # not have been fetched yet, and hiding it would remove the only way
+        # to ask for it.
+        if not rows and not closed_by_default:
             return
 
         # Untouched sections are closed. What "closed" means differs: an
@@ -330,8 +347,10 @@ class DayWindow:
         expanded = self.expanded.get(title, False)
 
         if closed_by_default:
+            # No count until the list has actually been fetched — a confident
+            # "(0)" on a section nobody has opened would simply be wrong.
             self._section(title, arrow="▾" if expanded else "▸",
-                          count=len(rows))
+                          count=len(rows) if expanded else None)
             for row in (rows if expanded else []):
                 self._row(row)
             return
