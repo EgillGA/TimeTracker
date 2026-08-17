@@ -15,6 +15,7 @@ The pages know only how to fill the frame they are handed.
 import tkinter as tk
 from datetime import date
 
+from timetracker import icon
 from timetracker.theme import Theme
 
 DAY = "day"
@@ -35,6 +36,7 @@ class Shell:
         self.showing = None
 
         self.window.configure(bg=self.theme["bg"])
+        icon.apply(self.window)
         width, height = self.theme.metrics["day_window"]
         self.window.geometry(f"{width}x{height}")
         self.window.minsize(560, 420)

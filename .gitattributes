@@ -1,2 +1,9 @@
 * text=auto eol=lf
 *.vbs text eol=crlf
+
+# Said explicitly rather than left to auto-detection: line-ending
+# normalisation applied to an icon corrupts it, and the damage would only show
+# up as a window with no icon on someone else's clone.
+*.png binary
+*.ico binary
+*.jpg binary

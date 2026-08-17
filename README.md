@@ -141,9 +141,24 @@ timetracker/
   week.py      targets, totals, gaps
   theme.py     design tokens
   ui_*.py      the windows
+  icon.py      the window icon
+  session.py   which page is up, and what stopping a timer means
+  ui_shell.py  one window, several pages
+assets/        icon at every size Windows asks for
 scripts/       smoke test and utilities
 docs/          design spec
 ```
+
+The icon is committed as PNGs and a packed `.ico`. To rebuild it from new
+artwork, point `scripts/make_icon.ps1` at the source image and run:
+
+```
+powershell -File scripts\make_icon.ps1    crop and render the sizes
+py scripts\build_icon.py                  pack them into icon.ico
+```
+
+Both are authoring steps. The program only ever loads the results, so it keeps
+its no-dependencies promise.
 
 ## Design
 
