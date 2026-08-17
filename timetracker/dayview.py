@@ -121,6 +121,19 @@ def set_hours(record, issue, seconds, source="manual", note=None):
     return record
 
 
+def remove_entry(record, issue_key):
+    """Take a row off the day.
+
+    A row already accepted by Tempo is left alone: its hours exist there, and
+    removing the local row would hide real logged time while giving no way to
+    unlog it. Those rows show no remove control in the window either.
+    """
+    entry = _entry_for(record, issue_key)
+    if entry is not None and not entry.get("submitted", False):
+        record["entries"].remove(entry)
+    return record
+
+
 def total_seconds(record):
     return sum(entry.get("seconds", 0) for entry in record["entries"])
 

@@ -1,4 +1,4 @@
-# Timelogger
+# TimeTracker
 
 A 15:30 nudge that turns "what did I do today?" into a filled-in Tempo
 timesheet, plus an optional live timer and a Friday check that the week is
@@ -10,7 +10,7 @@ Built for one person on one Windows machine, against Jira Cloud and Tempo.
 
 The hours get worked; the logging doesn't happen. Not for lack of data — Jira
 already knows what was touched — but for lack of a prompt while the day is
-still fresh. Timelogger asks at 15:30, pre-filled, and takes about twenty
+still fresh. TimeTracker asks at 15:30, pre-filled, and takes about twenty
 seconds to answer.
 
 ## Requirements
@@ -43,9 +43,9 @@ moved on without it.
 
 | Command | What happens |
 |---|---|
-| `py -m timelogger` | Day window |
-| `py -m timelogger --week` | Week overview |
-| `py -m timelogger --timer AV-412` | Start the timer on an issue |
+| `py -m timetracker` | Day window |
+| `py -m timetracker --week` | Week overview |
+| `py -m timetracker --timer AV-412` | Start the timer on an issue |
 
 Automatic launch at 15:30 on weekdays, plus a catch-up at logon if the machine
 was off, is installed with `py install.py` and removed with `py uninstall.py`.
@@ -63,7 +63,7 @@ their transport as an argument and are tested against recorded responses.
 ## Layout
 
 ```
-timelogger/
+timetracker/
   config.py    settings and credentials
   duration.py  parsing "1,5" / "1:30" / "90m" into seconds
   http.py      shared transport and error handling
@@ -81,7 +81,7 @@ docs/          design spec
 
 The full design, including the reasoning behind what was deliberately left
 out, is in
-[`docs/superpowers/specs/2026-08-17-timelogger-design.md`](docs/superpowers/specs/2026-08-17-timelogger-design.md).
+[`docs/superpowers/specs/2026-08-17-timetracker-design.md`](docs/superpowers/specs/2026-08-17-timetracker-design.md).
 
 ## Status
 

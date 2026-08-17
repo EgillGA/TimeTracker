@@ -1,4 +1,4 @@
-# Timelogger settings. Safe to read, safe to share — no secrets in here.
+# TimeTracker settings. Safe to read, safe to share — no secrets in here.
 # API tokens live in credentials.toml, which is git-ignored.
 
 [jira]

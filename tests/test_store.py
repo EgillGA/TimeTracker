@@ -11,7 +11,7 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 
-from timelogger.store import Store, recoverable_seconds
+from timetracker.store import Store, recoverable_seconds
 
 HOUR = 3600
 
@@ -19,7 +19,7 @@ HOUR = 3600
 class StoreTestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self._tmp.name) / "Timelogger"
+        self.root = Path(self._tmp.name) / "TimeTracker"
         self.store = Store(self.root)
         self.addCleanup(self._tmp.cleanup)
 

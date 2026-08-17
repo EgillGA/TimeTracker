@@ -1,4 +1,4 @@
-# Timelogger — Design Spec
+# TimeTracker — Design Spec
 
 Date: 2026-08-17
 Status: Approved for planning
@@ -12,7 +12,7 @@ moment when the day is still fresh. Time is reconstructed days later, or not at
 all, and the week is discovered to be short only when it is too late to
 remember what filled it.
 
-Timelogger addresses this in two ways, either of which works alone:
+TimeTracker addresses this in two ways, either of which works alone:
 
 - **Push.** At 15:30 on weekdays a window appears, pre-filled with the issues
   worked on, needing only numbers and a click.
@@ -62,8 +62,8 @@ implementation:
 ## 5. Architecture
 
 ```
-Timelogger/
-├─ timelogger/
+TimeTracker/
+├─ timetracker/
 │  ├─ __main__.py      entry point; mode selection
 │  ├─ config.py        config.toml + credentials.toml loading, validation
 │  ├─ jira.py          JQL search, issue key ↔ id resolution
@@ -80,10 +80,10 @@ Timelogger/
 ├─ config.toml               settings (safe to read, safe to share)
 ├─ credentials.toml          API tokens — user-created, never committed
 ├─ .gitignore                excludes credentials.toml and state/
-└─ run_timelogger.vbs        silent launcher for Task Scheduler
+└─ run_timetracker.vbs        silent launcher for Task Scheduler
 ```
 
-Local state lives in `%APPDATA%\Timelogger\` — not in the source folder — so
+Local state lives in `%APPDATA%\TimeTracker\` — not in the source folder — so
 the code directory stays clean and disposable.
 
 ### Module boundaries
@@ -106,7 +106,7 @@ unit test rather than by clicking through a window at 15:30.
 
 ### Local day record
 
-One JSON file per day, `%APPDATA%\Timelogger\days\2026-08-17.json`:
+One JSON file per day, `%APPDATA%\TimeTracker\days\2026-08-17.json`:
 
 ```json
 {
@@ -141,7 +141,7 @@ the successful rows alone and retries only what failed.
 
 ### Live timer state
 
-`%APPDATA%\Timelogger\timer.json`, flushed every 30 seconds while running:
+`%APPDATA%\TimeTracker\timer.json`, flushed every 30 seconds while running:
 
 ```json
 {
@@ -156,7 +156,7 @@ the successful rows alone and retries only what failed.
 ```
 
 On launch, if this file exists the app offers recovery: *"A timer for AV-412
-was running when Timelogger last closed, from 09:15 to 10:44. Keep that time?"*
+was running when TimeTracker last closed, from 09:15 to 10:44. Keep that time?"*
 The heartbeat, not the current clock, bounds the recovered segment — a machine
 that was asleep for four hours must not award itself four hours.
 
@@ -201,7 +201,7 @@ All three JQL strings live in `config.toml` so they can be tuned without
 editing code. Results are capped at 50 per query. The internal list changes
 rarely, so it is fetched once per launch and cached in memory; if the fetch
 fails, the last successful list is read from
-`%APPDATA%\Timelogger\internal_cache.json` and shown with a staleness note,
+`%APPDATA%\TimeTracker\internal_cache.json` and shown with a staleness note,
 because losing access to the admin issues is the difference between logging a
 day and abandoning it.
 
@@ -216,7 +216,7 @@ day and abandoning it.
   `authorAccountId`.
 
 Because Tempo v4 takes a numeric issue id, `jira.py` maintains a key → id map
-cached in `%APPDATA%\Timelogger\issue_ids.json`, populated from search results
+cached in `%APPDATA%\TimeTracker\issue_ids.json`, populated from search results
 and filled on demand for manually typed keys.
 
 ## 8. Configuration
@@ -356,7 +356,7 @@ The timer is never stopped automatically; the user is told, not overruled.
 ### Screen: the day window (720 × 560)
 
 ```
-┌ Timelogger — Monday 17 August ─────────────────────────────┐
+┌ TimeTracker — Monday 17 August ─────────────────────────────┐
 │                                                            │
 │   Today          6.5 of 8.0 hours          ▁▁▁▁▁▁▁▁▁░░░    │
 │                                                            │
@@ -417,7 +417,7 @@ day's state never leaves the screen while hunting for an admin issue:
 ### Screen: the week window (760 × 520)
 
 ```
-┌ Timelogger — week of 17 August ────────────────────────────┐
+┌ TimeTracker — week of 17 August ────────────────────────────┐
 │                                                            │
 │   This week          33.5 of 40.0 hours                    │
 │                                                            │
@@ -488,12 +488,12 @@ than opening a duplicate.
 ### Scheduling
 
 Two Windows Task Scheduler tasks, created by `install.py` for the current user,
-with no admin rights required, both running `run_timelogger.vbs` so no console
+with no admin rights required, both running `run_timetracker.vbs` so no console
 window flashes:
 
-1. **Timelogger Daily** — 15:30, Mon–Fri, `--scheduled`. *Run task as soon as
+1. **TimeTracker Daily** — 15:30, Mon–Fri, `--scheduled`. *Run task as soon as
    possible after a scheduled start is missed* is enabled.
-2. **Timelogger Catchup** — at logon, `--catchup`, delayed 2 minutes.
+2. **TimeTracker Catchup** — at logon, `--catchup`, delayed 2 minutes.
 
 `install.py` also prints how to disable both, and `uninstall.py` removes them.
 An automation that cannot be easily turned off will be resented and killed
@@ -535,7 +535,7 @@ is queried rather than assumed.
 | Crash while timing | Next launch offers recovery bounded by the last heartbeat. |
 | Timer running at 15:30 | Day window shows the live segment as a running row; it keeps running unless stopped. |
 
-Uncaught exceptions are written to `%APPDATA%\Timelogger\logs\error.log` with a
+Uncaught exceptions are written to `%APPDATA%\TimeTracker\logs\error.log` with a
 timestamp, and shown as a short message with the log path — a scheduled task
 that dies invisibly is indistinguishable from one that was never installed.
 Logs redact anything token-shaped.
@@ -618,4 +618,4 @@ Still open:
   transmitted anywhere other than `apt-oz.atlassian.net` and `api.tempo.io`
   over HTTPS.
 - No telemetry, no analytics, no network calls beyond those two hosts.
-- All local state is confined to `%APPDATA%\Timelogger\`.
+- All local state is confined to `%APPDATA%\TimeTracker\`.

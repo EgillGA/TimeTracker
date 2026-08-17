@@ -9,7 +9,7 @@ import json
 from datetime import date
 from urllib.parse import urlencode
 
-from timelogger.http import Response, check_status, urllib_transport
+from timetracker.http import Response, check_status, urllib_transport
 
 BASE_URL = "https://api.tempo.io/4"
 SERVICE = "Tempo"

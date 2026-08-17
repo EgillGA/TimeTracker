@@ -7,7 +7,7 @@ provoked in a test instead of waited for in production.
 
 import json
 
-from timelogger.http import Response
+from timetracker.http import Response
 
 
 class FakeTransport:

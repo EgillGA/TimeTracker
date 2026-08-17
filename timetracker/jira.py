@@ -8,7 +8,7 @@ worked on this week costs no extra request.
 import base64
 import json
 
-from timelogger.http import ApiError, Response, check_status, urllib_transport
+from timetracker.http import ApiError, Response, check_status, urllib_transport
 
 ENHANCED_SEARCH = "/rest/api/3/search/jql"
 LEGACY_SEARCH = "/rest/api/2/search"

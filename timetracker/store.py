@@ -19,10 +19,10 @@ DAYS_DIRNAME = "days"
 
 
 def default_root():
-    """%APPDATA%\\Timelogger — state lives outside the source folder."""
+    """%APPDATA%\\TimeTracker — state lives outside the source folder."""
     appdata = os.environ.get("APPDATA")
     base = Path(appdata) if appdata else Path.home() / ".config"
-    return base / "Timelogger"
+    return base / "TimeTracker"
 
 
 def _empty_day(day):
@@ -53,7 +53,7 @@ def recoverable_seconds(state, now=None):
 
 
 class Store:
-    """Reads and writes Timelogger's local files.
+    """Reads and writes TimeTracker's local files.
 
     Corrupt files are moved aside rather than deleted, and the move is recorded
     in `warnings` so the window can tell the user where their data went.

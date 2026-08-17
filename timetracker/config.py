@@ -145,7 +145,7 @@ def load_credentials(root=None):
 
 def _setup_message(path, reason):
     return (
-        f"Timelogger needs its API tokens, but {reason}.\n\n"
+        f"TimeTracker needs its API tokens, but {reason}.\n\n"
         f"Open {path} and fill in both values:\n\n"
         f"  jira_api_token  — create one at {JIRA_TOKEN_URL}\n"
         f"  tempo_api_token — create one at {TEMPO_TOKEN_PATH}\n\n"

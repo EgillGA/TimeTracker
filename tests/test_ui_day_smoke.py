@@ -12,9 +12,9 @@ import tkinter as tk
 import unittest
 from datetime import date
 
-from timelogger import dayview
-from timelogger.theme import Theme
-from timelogger.ui_day import INTERNAL, MY_WORK, DayCallbacks, DayData, DayWindow
+from timetracker import dayview
+from timetracker.theme import Theme
+from timetracker.ui_day import INTERNAL, MY_WORK, DayCallbacks, DayData, DayWindow
 
 HOUR = 3600
 
@@ -32,6 +32,12 @@ INTERNAL_ISSUES = [
 def record(entries=None):
     return {"date": "2026-08-17", "submitted_at": None,
             "entries": entries or [], "segments": []}
+
+
+def _descendants(widget):
+    for child in widget.winfo_children():
+        yield child
+        yield from _descendants(child)
 
 
 def has_display():
@@ -242,6 +248,67 @@ class DayWindowSmoke(unittest.TestCase):
             dayview.suggestion_rows(data.record, CANDIDATES, [])[0]
         )
         self.assertEqual(self.started[0]["key"], "AP-7500")
+
+    def test_hours_are_shown_as_hours_and_minutes(self):
+        data = DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AP-7500", "issue_id": 7500,
+                            "summary": "LOPA", "seconds": 5400,
+                            "source": "manual", "confirmed": True,
+                            "submitted": False, "tempo_worklog_id": None,
+                            "note": ""}]),
+            target_seconds=8 * HOUR,
+        )
+        window = self.build(data)
+
+        self.assertEqual(window._fields["AP-7500"].get(), "1:30")
+        self.assertEqual(window.total_label.cget("text"), "1:30 of 8:00")
+        self.assertEqual(window.submit_button.cget("text"), "Submit 1:30")
+        self.assertEqual(window.unaccounted_label.cget("text"),
+                         "6:30 unaccounted")
+
+    def test_a_tracked_row_can_be_removed(self):
+        data = DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AP-7500", "issue_id": 7500,
+                            "summary": "LOPA", "seconds": 3 * HOUR,
+                            "source": "manual", "confirmed": True,
+                            "submitted": False, "tempo_worklog_id": None,
+                            "note": ""}]),
+        )
+        window = self.build(data)
+        window._remove(dayview.tracked_rows(data.record)[0])
+        self.root.update()
+
+        self.assertEqual(data.record["entries"], [])
+
+    def test_removing_a_row_clears_any_error_shown_against_it(self):
+        data = DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AP-7500", "issue_id": 7500,
+                            "summary": "LOPA", "seconds": HOUR,
+                            "source": "manual", "confirmed": True,
+                            "submitted": False, "tempo_worklog_id": None,
+                            "note": ""}]),
+        )
+        window = self.build(data, on_submit=lambda r: [
+            {"issue_key": "AP-7500", "ok": False, "message": "Period is closed"}
+        ])
+        window._submit()
+        self.root.update()
+        self.assertIn("AP-7500", window.row_status)
+
+        window._remove(dayview.tracked_rows(data.record)[0])
+        self.root.update()
+        self.assertNotIn("AP-7500", window.row_status)
+
+    def test_there_is_no_scrollbar(self):
+        window = self.build()
+        scrollbars = [
+            child for child in _descendants(self.root)
+            if isinstance(child, tk.Scrollbar)
+        ]
+        self.assertEqual(scrollbars, [])
 
     def test_ctrl_tab_switches_tabs(self):
         window = self.build()

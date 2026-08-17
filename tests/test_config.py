@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from timelogger.config import MissingCredentials, load_config, load_credentials
+from timetracker.config import MissingCredentials, load_config, load_credentials
 
 CONFIG = """
 [jira]

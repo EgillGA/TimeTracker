@@ -7,7 +7,13 @@ produce `1:30`. All of them arrive in the same box.
 
 import unittest
 
-from timelogger.duration import InvalidDuration, format_hhmmss, format_hours, parse_hours
+from timetracker.duration import (
+    InvalidDuration,
+    format_hhmmss,
+    format_hm,
+    format_hours,
+    parse_hours,
+)
 
 HOUR = 3600
 MINUTE = 60
@@ -131,11 +137,50 @@ class FormatForDisplay(unittest.TestCase):
         self.assertEqual(format_hours(0), "0")
 
 
+class FormatAsHoursAndMinutes(unittest.TestCase):
+    """Every duration the user reads is HH:MM. Decimal hours are a payroll
+    abstraction; nobody works "1.5 hours", they work an hour and a half."""
+
+    def test_an_hour_and_a_half(self):
+        self.assertEqual(format_hm(5400), "1:30")
+
+    def test_a_full_day(self):
+        self.assertEqual(format_hm(28800), "8:00")
+
+    def test_half_an_hour_keeps_the_leading_zero_hour(self):
+        self.assertEqual(format_hm(1800), "0:30")
+
+    def test_zero(self):
+        self.assertEqual(format_hm(0), "0:00")
+
+    def test_minutes_are_always_two_digits(self):
+        self.assertEqual(format_hm(3900), "1:05")
+
+    def test_past_ten_hours(self):
+        self.assertEqual(format_hm(36000), "10:00")
+
+    def test_seconds_round_to_the_nearest_minute(self):
+        self.assertEqual(format_hm(1199), "0:20")
+
+    def test_rounding_up_to_sixty_carries_into_the_hour(self):
+        # 3599s is 59.98 minutes. "0:60" would be a visible embarrassment.
+        self.assertEqual(format_hm(3599), "1:00")
+
+    def test_rounding_up_at_the_top_of_a_day(self):
+        self.assertEqual(format_hm(28799), "8:00")
+
+
 class RoundTrip(unittest.TestCase):
     def test_formatted_hours_parse_back_to_the_same_seconds(self):
         for seconds in (0, 1800, 3600, 5400, 27000, 28800):
             with self.subTest(seconds=seconds):
                 self.assertEqual(parse_hours(format_hours(seconds)), seconds)
+
+    def test_hours_and_minutes_parse_back_to_the_same_seconds(self):
+        # What the window shows must be re-readable by the box it sits in.
+        for seconds in (0, 1800, 3600, 5400, 27000, 28800, 3900):
+            with self.subTest(seconds=seconds):
+                self.assertEqual(parse_hours(format_hm(seconds)), seconds)
 
 
 if __name__ == "__main__":

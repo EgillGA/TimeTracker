@@ -8,7 +8,7 @@ months later.
 
 import unittest
 
-from timelogger.theme import DARK, LIGHT, MONO_FALLBACK, Theme
+from timetracker.theme import DARK, LIGHT, MONO_FALLBACK, Theme
 
 
 class PalettesStayInStep(unittest.TestCase):

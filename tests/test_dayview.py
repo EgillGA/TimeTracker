@@ -7,12 +7,13 @@ verify by looking at it.
 
 import unittest
 
-from timelogger.dayview import (
+from timetracker.dayview import (
     candidate_issues,
     entries_to_submit,
     fill_remaining,
     internal_rows,
     mark_submitted,
+    remove_entry,
     set_hours,
     suggestion_rows,
     total_seconds,
@@ -153,6 +154,46 @@ class EnteringHours(unittest.TestCase):
         record = day([entry("AP-7500", HOUR, submitted=True, tempo_worklog_id=5)])
         record = set_hours(record, issue("AP-7500", 1), 2 * HOUR)
         self.assertEqual(record["entries"][0]["tempo_worklog_id"], 5)
+
+
+class RemovingARow(unittest.TestCase):
+    def test_a_row_can_be_taken_off_the_day(self):
+        record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 2 * HOUR)])
+        record = remove_entry(record, "AP-1")
+
+        self.assertEqual([e["issue_key"] for e in record["entries"]], ["AP-2"])
+
+    def test_removing_drops_its_hours_from_the_total(self):
+        record = day([entry("AP-1", 3 * HOUR), entry("AP-2", 2 * HOUR)])
+        record = remove_entry(record, "AP-1")
+        self.assertEqual(total_seconds(record), 2 * HOUR)
+
+    def test_a_row_already_in_tempo_is_never_removed(self):
+        # Its hours exist in Tempo. Deleting the local row would hide time
+        # that is really logged, and this tool has no way to unlog it.
+        record = day([entry("AP-1", 3 * HOUR, submitted=True,
+                            tempo_worklog_id=46580)])
+        record = remove_entry(record, "AP-1")
+
+        self.assertEqual(len(record["entries"]), 1)
+        self.assertTrue(record["entries"][0]["submitted"])
+
+    def test_removing_an_unknown_issue_changes_nothing(self):
+        record = day([entry("AP-1", HOUR)])
+        record = remove_entry(record, "AP-999")
+        self.assertEqual(len(record["entries"]), 1)
+
+    def test_a_removed_issue_returns_to_the_suggestions(self):
+        record = day([entry("AP-7500", HOUR)])
+        record = remove_entry(record, "AP-7500")
+
+        rows = suggestion_rows(record, [issue("AP-7500", 1)], [])
+        self.assertEqual([r.issue_key for r in rows], ["AP-7500"])
+
+    def test_removal_is_case_insensitive(self):
+        record = day([entry("AP-1", HOUR)])
+        record = remove_entry(record, "ap-1")
+        self.assertEqual(record["entries"], [])
 
 
 class Totals(unittest.TestCase):

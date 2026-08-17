@@ -79,6 +79,17 @@ def format_hhmmss(seconds):
     return f"{hours}:{minutes:02d}:{secs:02d}"
 
 
+def format_hm(seconds):
+    """Format a duration as H:MM — the way people actually say it.
+
+    Rounds to the nearest minute, carrying into the hour so that 59.98
+    minutes reads "1:00" and never "0:60".
+    """
+    minutes = round(int(seconds) / 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}"
+
+
 def format_hours(seconds):
     """Format seconds as decimal hours for entry boxes and totals.
 

@@ -1,4 +1,4 @@
-"""Check Timelogger's assumptions against the real Jira and Tempo.
+"""Check TimeTracker's assumptions against the real Jira and Tempo.
 
 Run this once, before trusting anything else. It answers the questions the
 unit tests cannot: does authentication work, does this site use the newer
@@ -20,11 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from timelogger.config import MissingCredentials, load_config, load_credentials
-from timelogger.http import ApiError
-from timelogger.jira import JiraClient
-from timelogger.tempo import TempoClient
-from timelogger.week import weekdays_of_week
+from timetracker.config import MissingCredentials, load_config, load_credentials
+from timetracker.http import ApiError
+from timetracker.jira import JiraClient
+from timetracker.tempo import TempoClient
+from timetracker.week import weekdays_of_week
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -110,7 +110,7 @@ def main(argv):
                 "create a 1-minute worklog",
                 lambda: tempo.create_worklog(
                     account_id=account_id, issue_id=issue_id, seconds=60,
-                    day=date.today(), description="Timelogger smoke test",
+                    day=date.today(), description="TimeTracker smoke test",
                 ),
             )
             if worklog_id:

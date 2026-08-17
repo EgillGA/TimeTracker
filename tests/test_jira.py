@@ -10,8 +10,8 @@ import json
 import unittest
 
 from tests.fakes import ok, raw, status
-from timelogger.http import ApiError, AuthError
-from timelogger.jira import JiraClient
+from timetracker.http import ApiError, AuthError
+from timetracker.jira import JiraClient
 from tests.fakes import FakeTransport
 
 SITE = "https://apt-oz.atlassian.net"

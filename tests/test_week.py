@@ -8,7 +8,7 @@ that are not — and the second failure is the one that costs money.
 import unittest
 from datetime import date
 
-from timelogger.week import pending_seconds, summarise_week, weekdays_of_week
+from timetracker.week import pending_seconds, summarise_week, weekdays_of_week
 
 HOUR = 3600
 

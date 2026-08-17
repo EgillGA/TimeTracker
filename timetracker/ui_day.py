@@ -13,9 +13,9 @@ import tkinter.font as tkfont
 from dataclasses import dataclass, field
 from datetime import date
 
-from timelogger import dayview
-from timelogger.duration import InvalidDuration, format_hours, parse_hours
-from timelogger.theme import Theme
+from timetracker import dayview
+from timetracker.duration import InvalidDuration, format_hm, parse_hours
+from timetracker.theme import Theme
 
 
 @dataclass
@@ -52,7 +52,7 @@ class DayWindow:
         self.row_status = {}
         self._fields = {}
 
-        master.title(f"Timelogger — {data.day:%A %d %B}")
+        master.title(f"TimeTracker — {data.day:%A %d %B}")
         master.configure(bg=self.theme["bg"])
         width, height = self.theme.metrics["day_window"]
         master.geometry(f"{width}x{height}")
@@ -121,15 +121,13 @@ class DayWindow:
         container = tk.Frame(self.master, bg=self.theme["bg"])
         container.pack(fill="both", expand=True, padx=pad)
 
+        # No scrollbar: the list is short by design — nine or so issues — and
+        # a permanent grey bar down the side is more visual noise than the
+        # rare overflow is worth. The wheel still scrolls.
         self.canvas = tk.Canvas(
             container, bg=self.theme["bg"], highlightthickness=0, bd=0
         )
-        scrollbar = tk.Scrollbar(container, orient="vertical",
-                                 command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-
         self.canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
 
         self.list_frame = tk.Frame(self.canvas, bg=self.theme["bg"])
         self._list_window = self.canvas.create_window(
@@ -198,7 +196,7 @@ class DayWindow:
         total = dayview.total_seconds(record)
 
         self.total_label.configure(
-            text=f"{format_hours(total)} of {format_hours(target)} hours",
+            text=f"{format_hm(total)} of {format_hm(target)}",
             fg=self.theme.status_color(complete=total >= target),
         )
         self._draw_progress(total, target)
@@ -220,14 +218,14 @@ class DayWindow:
 
         missing = dayview.unaccounted_seconds(record, target)
         self.unaccounted_label.configure(
-            text=f"{format_hours(missing)} h unaccounted" if missing else "",
+            text=f"{format_hm(missing)} unaccounted" if missing else "",
         )
         self.fill_button.configure(
             fg=self.theme["text"] if missing else self.theme["text_muted"]
         )
 
         pending = sum(e["seconds"] for e in dayview.entries_to_submit(record))
-        self.submit_button.configure(text=f"Submit {format_hours(pending)} h"
+        self.submit_button.configure(text=f"Submit {format_hm(pending)}"
                                      if pending else "Submit")
 
         self._render_rows()
@@ -291,6 +289,7 @@ class DayWindow:
         summary.pack(side="left", fill="x", expand=True,
                      padx=(self.theme.space["sm"], 0))
 
+        self._remove_button(frame, row)
         self._row_actions(frame, row)
         self._hours_field(frame, row)
         self._badges(frame, row)
@@ -305,9 +304,26 @@ class DayWindow:
                             anchor="w", wraplength=600, justify="left")
             note.pack(fill="x", padx=(self.theme.space["md"], 0))
 
+    def _remove_button(self, frame, row):
+        """Take a row off the day. Absent on rows already in Tempo — removing
+        one would hide time that really is logged, and nothing here can unlog
+        it."""
+        if not row.on_day or row.submitted:
+            return
+
+        remove = tk.Label(frame, text="✕", bg=self.theme["surface"],
+                          fg=self.theme["text_muted"],
+                          font=self.theme.font("body"), cursor="hand2")
+        remove.pack(side="right", padx=(0, self.theme.space["md"]))
+        remove.bind("<Button-1>", lambda _e, r=row: self._remove(r))
+        remove.bind("<Enter>", lambda _e, w=remove: w.configure(
+            fg=self.theme["danger"]))
+        remove.bind("<Leave>", lambda _e, w=remove: w.configure(
+            fg=self.theme["text_muted"]))
+
     def _hours_field(self, frame, row):
         if row.submitted:
-            tk.Label(frame, text=f"{format_hours(row.seconds)} logged",
+            tk.Label(frame, text=f"{format_hm(row.seconds)} logged",
                      bg=self.theme["surface"], fg=self.theme["accent"],
                      font=self.theme.font("number")).pack(
                 side="right", padx=self.theme.space["sm"])
@@ -322,7 +338,7 @@ class DayWindow:
             highlightcolor=self.theme["accent"],
         )
         if row.seconds:
-            entry.insert(0, format_hours(row.seconds))
+            entry.insert(0, format_hm(row.seconds))
         entry.pack(side="right", padx=self.theme.space["sm"], ipady=4)
         entry.bind("<KeyRelease>", lambda _e, r=row, w=entry: self._typed(r, w))
         entry.bind("<Return>", lambda _e: self._submit())
@@ -456,6 +472,11 @@ class DayWindow:
             {"key": row.issue_key, "id": row.issue_id, "summary": row.summary}
         )
 
+    def _remove(self, row):
+        dayview.remove_entry(self.data.record, row.issue_key)
+        self.row_status.pop(row.issue_key.upper(), None)
+        self._changed()
+
     def _fill_remaining(self):
         dayview.fill_remaining(self.data.record, self.data.target_seconds)
         self._changed()
@@ -485,25 +506,25 @@ class DayWindow:
         record, target = self.data.record, self.data.target_seconds
         total = dayview.total_seconds(record)
         self.total_label.configure(
-            text=f"{format_hours(total)} of {format_hours(target)} hours",
+            text=f"{format_hm(total)} of {format_hm(target)}",
             fg=self.theme.status_color(complete=total >= target),
         )
         self._draw_progress(total, target)
         missing = dayview.unaccounted_seconds(record, target)
         self.unaccounted_label.configure(
-            text=f"{format_hours(missing)} h unaccounted" if missing else ""
+            text=f"{format_hm(missing)} unaccounted" if missing else ""
         )
         pending = sum(e["seconds"] for e in dayview.entries_to_submit(record))
         self.submit_button.configure(
-            text=f"Submit {format_hours(pending)} h" if pending else "Submit"
+            text=f"Submit {format_hm(pending)}" if pending else "Submit"
         )
 
 
 def preview(theme_name="dark"):
     """Open the window with invented data and no network.
 
-        py -m timelogger.ui_day
-        py -m timelogger.ui_day light
+        py -m timetracker.ui_day
+        py -m timetracker.ui_day light
 
     For looking at it. Nothing here touches Jira, Tempo or your day files.
     """
@@ -529,9 +550,12 @@ def preview(theme_name="dark"):
                  "tempo_worklog_id": 46580},
             ],
         },
+        # Shaped like the real thing: both AP and ADS come back from
+        # `assignee = currentUser()`, which has no project filter.
         candidates=[
             {"key": "AP-7492", "id": 7492,
              "summary": "CRA252158 - EEL change A320 MSN6319"},
+            {"key": "ADS-150", "id": 150, "summary": "OVHD Bin Divider"},
             {"key": "AP-7455", "id": 7455, "summary": "Wiring diagram update"},
             {"key": "AP-7390", "id": 7390, "summary": "Update EWIS report"},
         ],
@@ -539,6 +563,9 @@ def preview(theme_name="dark"):
             {"key": "AI-1", "id": 1, "summary": "INTERNAL - WORK"},
             {"key": "AI-2", "id": 2, "summary": "INTERNAL - OTHER"},
             {"key": "AI-3", "id": 3, "summary": "INTERNAL - HOLIDAY"},
+            {"key": "AI-4", "id": 4, "summary": "INTERNAL - SICK DAYS"},
+            {"key": "AI-5", "id": 5, "summary": "INTERNAL - Development"},
+            {"key": "AI-6", "id": 6, "summary": "INTERNAL - CHILDREN SICK"},
         ],
         target_seconds=8 * 3600,
     )

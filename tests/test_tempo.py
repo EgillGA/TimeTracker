@@ -9,8 +9,8 @@ import unittest
 from datetime import date
 
 from tests.fakes import FakeTransport, ok, raw, status
-from timelogger.http import ApiError, AuthError
-from timelogger.tempo import TempoClient
+from timetracker.http import ApiError, AuthError
+from timetracker.tempo import TempoClient
 
 TOKEN = "tempo-token"
 ACCOUNT = "5f8a:abc"
