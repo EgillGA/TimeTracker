@@ -166,6 +166,34 @@ class TheStripItself(unittest.TestCase):
     def test_it_starts_running_not_paused(self):
         self.assertFalse(self.build().is_paused())
 
+    def test_hovering_reveals_controls_with_room_to_be_seen(self):
+        """The title is packed on the left; if it is given space before the
+        controls on the right, they get allocated nothing and vanish."""
+        long_issue = dict(ISSUE, summary="CRA252159 - 767 - ANG - "
+                                         "ISN/O LOPA change for Icelandair")
+        strip = TimerStrip(self.root, long_issue, config(),
+                           StripCallbacks(), now=NINE)
+        strip._expand()
+        self.root.update()
+
+        for name, button in (("pause", strip.pause_button),
+                             ("stop", strip.stop_button),
+                             ("expand", strip.open_button)):
+            with self.subTest(button=name):
+                self.assertTrue(button.winfo_ismapped(),
+                                f"the {name} button is not on screen")
+                self.assertGreater(button.winfo_width(), 1,
+                                   f"the {name} button has no width")
+
+    def test_the_clock_keeps_its_room_when_the_title_is_long(self):
+        long_issue = dict(ISSUE, summary="x" * 200)
+        strip = TimerStrip(self.root, long_issue, config(),
+                           StripCallbacks(), now=NINE)
+        self.root.update()
+
+        self.assertTrue(strip.time_label.winfo_ismapped())
+        self.assertGreater(strip.time_label.winfo_width(), 1)
+
     def test_pausing_freezes_the_display(self):
         strip = self.build()
         strip.toggle_pause(NINE + timedelta(minutes=30))

@@ -105,8 +105,8 @@ class TimerStrip:
         self.window.attributes("-topmost", True)
         self.window.configure(bg=self.theme["border"])
 
-    def _place(self):
-        width, height = self.theme.metrics["strip_resting"]
+    def _place(self, size="strip_resting"):
+        width, height = self.theme.metrics[size]
         margin = self.theme.metrics["strip_margin"]
 
         area = work_area() or (
@@ -133,18 +133,23 @@ class TimerStrip:
                                   font=self.theme.font("issue_key"))
         self.key_label.pack(side="left", padx=(self.theme.space["sm"], 0))
 
-        self.summary_label = tk.Label(
-            self.body, text=shorten(self.state.get("summary")),
-            bg=self.theme["surface"], fg=self.theme["text_muted"],
-            font=self.theme.font("small"), anchor="w",
-        )
-        self.summary_label.pack(side="left", padx=(self.theme.space["sm"], 0))
-
+        # The clock is packed before the title on purpose. Tk allocates space
+        # in packing order, so whatever comes last is what gets squeezed when
+        # the strip is too narrow — and that has to be the title, never the
+        # clock or the controls.
         self.time_label = tk.Label(self.body, text="0:00:00",
                                    bg=self.theme["surface"],
                                    fg=self.theme["text"],
                                    font=self.theme.font("timer"))
         self.time_label.pack(side="right", padx=(0, self.theme.space["sm"]))
+
+        self.summary_label = tk.Label(
+            self.body, text=shorten(self.state.get("summary")),
+            bg=self.theme["surface"], fg=self.theme["text_muted"],
+            font=self.theme.font("small"), anchor="w",
+        )
+        self.summary_label.pack(side="left", fill="x", expand=True,
+                                padx=(self.theme.space["sm"], 0))
 
         self.controls = tk.Frame(self.body, bg=self.theme["surface"])
         self.pause_button = self._control("⏸", self.toggle_pause)
@@ -215,7 +220,12 @@ class TimerStrip:
         if self._expanded or self.checkin_visible:
             return
         self._expanded = True
-        self.controls.pack(side="right", padx=(0, self.theme.space["xs"]))
+        self._place("strip_hover")
+        # `before` puts the controls ahead of the title in the packing order,
+        # so they are allocated their width first. Packed after it, they were
+        # given whatever the title left over, which was nothing.
+        self.controls.pack(side="right", before=self.summary_label,
+                           padx=(0, self.theme.space["xs"]))
 
     def _collapse(self, _event=None):
         if not self._expanded:
@@ -228,6 +238,7 @@ class TimerStrip:
             return
         self._expanded = False
         self.controls.pack_forget()
+        self._place()
 
     # -- the clock ----------------------------------------------------------
 
