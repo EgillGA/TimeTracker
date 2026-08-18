@@ -305,6 +305,59 @@ class DayWindowSmoke(unittest.TestCase):
         )
         self.assertEqual(self.started[0]["key"], "AP-7500")
 
+    def _play_buttons(self):
+        return [w for w in _descendants(self.root)
+                if isinstance(w, tk.Label) and w.cget("text") == "▶"]
+
+    def test_a_tracked_row_offers_a_way_to_start_the_timer_again(self):
+        # Stopping a timer moves the issue into Tracked today - that must not
+        # be the one place ▶ stops being an option.
+        data = DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AP-7500", "issue_id": 7500,
+                            "summary": "LOPA", "seconds": HOUR,
+                            "source": "manual", "confirmed": True,
+                            "submitted": False, "tempo_worklog_id": None,
+                            "note": ""}]),
+            internal=[],
+        )
+        window = self.build(data)
+
+        buttons = self._play_buttons()
+        self.assertEqual(len(buttons), 1)
+
+        buttons[0].event_generate("<Button-1>")
+        self.root.update()
+        self.assertEqual(self.started[0]["key"], "AP-7500")
+
+    def test_the_running_row_has_no_start_button_of_its_own(self):
+        # It is already going; a second ▶ on it would mean "start it again".
+        window = self.build(DayData(
+            day=date(2026, 8, 17), record=record(),
+            assigned=ASSIGNED, internal=[], running=self.running_state(),
+        ))
+        # AP-7429 is still untouched and keeps its own ▶; only AP-7500, the
+        # running one, must be missing theirs.
+        self.assertEqual(len(self._play_buttons()), 1)
+
+    def test_the_internal_tab_does_not_offer_to_restart_a_tracked_issue(self):
+        # Internal tab rows already on the day only ever say "already added" -
+        # unaffected by this change, unlike untouched ones which still get ▶.
+        data = DayData(
+            day=date(2026, 8, 17),
+            record=record([{"issue_key": "AI-1", "issue_id": 1,
+                            "summary": "INTERNAL - WORK", "seconds": HOUR,
+                            "source": "manual", "confirmed": True,
+                            "submitted": False, "tempo_worklog_id": None,
+                            "note": ""}]),
+            internal=[{"key": "AI-1", "id": 1, "summary": "INTERNAL - WORK"}],
+        )
+        window = self.build(data)
+        window.show_tab(INTERNAL)
+        self.root.update()
+
+        self.assertEqual(self._play_buttons(), [])
+
     def test_hours_are_shown_as_hours_and_minutes(self):
         data = DayData(
             day=date(2026, 8, 17),

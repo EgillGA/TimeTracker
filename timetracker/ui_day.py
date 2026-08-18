@@ -522,6 +522,14 @@ class DayWindow:
                          fg=self.theme["accent"],
                          font=self.theme.font("body")).pack(
                     side="right", padx=(0, self.theme.space["sm"]))
+                return
+
+            # Already tracked today is not the same as done with — a stopped
+            # timer is exactly the case where you come back to add more time
+            # against the same issue, and typing hours already works for
+            # that. The live timer should not be the one way in that's shut.
+            if not row.is_running:
+                self._start_button(frame, row)
             return
 
         add = tk.Label(frame, text="+", bg=self.theme["surface"],
@@ -534,6 +542,9 @@ class DayWindow:
         add.bind("<Leave>", lambda _e, w=add: w.configure(
             fg=self.theme["text_muted"]))
 
+        self._start_button(frame, row)
+
+    def _start_button(self, frame, row):
         start = tk.Label(frame, text="▶", bg=self.theme["surface"],
                          fg=self.theme["text_muted"],
                          font=self.theme.font("body"), cursor="hand2")
