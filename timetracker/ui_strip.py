@@ -16,7 +16,7 @@ import tkinter as tk
 from dataclasses import dataclass
 from datetime import datetime
 
-from timetracker import timer
+from timetracker import icon, notify, timer
 from timetracker.duration import format_hhmmss
 from timetracker.theme import Theme
 
@@ -291,6 +291,15 @@ class TimerStrip:
         )
         self.window.geometry(f"{width}x{height}+{x}+{y}")
         self.checkin.pack(fill="both", expand=True, padx=1, pady=(0, 1))
+
+        # The strip alone is easy to miss — small, silent, and often behind
+        # whatever the screen actually belongs to. A real notification is
+        # what gets noticed away from the corner.
+        notify.toast(
+            self.window, "Still tracking?",
+            f"{self.state['issue_key']} — running {elapsed}",
+            icon_path=icon.ICO,
+        )
 
     def _hide_checkin(self):
         self.checkin_visible = False

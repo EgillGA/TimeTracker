@@ -69,7 +69,8 @@ def run_auto():
             return 0
         # Fridays open on the week: today's hours matter less than the four
         # days behind it that can still be fixed.
-        return open_week() if action == launch.WEEK else open_day()
+        return (open_week(announce=True) if action == launch.WEEK
+                else open_day(announce=True))
 
 
 def _service_or_setup(theme):
@@ -84,14 +85,14 @@ def _service_or_setup(theme):
         return None
 
 
-def open_day():
+def open_day(announce=False):
     """The day window, with ▶ able to start a timer without closing it."""
-    return _run_session()
+    return _run_session(announce=announce)
 
 
-def open_week():
+def open_week(announce=False):
     """The week overview on its own."""
-    return _run_session(start_on_week=True)
+    return _run_session(start_on_week=True, announce=announce)
 
 
 def _day_page(frame, day, service, theme, on_start_timer, on_running,
@@ -134,12 +135,17 @@ def run_timer(issue_key):
     return _run_session(open_with_timer=issue_key)
 
 
-def _run_session(open_with_timer=None, start_on_week=False):
+def _run_session(open_with_timer=None, start_on_week=False, announce=False):
     """One program: one window, one event loop, whichever end you come in from.
 
     The day and the week are pages inside that window. The timer strip is the
     one separate thing, because borderless and always-on-top over the clock is
     not something a page inside a normal window can be.
+
+    `announce` is only true for the scheduled trigger: a window someone opened
+    themselves needs no notification telling them it opened, but one that
+    appears on its own is easy to miss behind whatever the screen already
+    belongs to.
     """
     from timetracker import ui_notice
     from timetracker.config import load_config
@@ -158,6 +164,15 @@ def _run_session(open_with_timer=None, start_on_week=False):
 
     store = Store()
     window = tk.Tk()
+
+    if announce:
+        from timetracker import icon, notify
+        notify.toast(
+            window, "TimeTracker",
+            "This week's hours are worth a look" if start_on_week
+            else "Today's hours are ready to log",
+            icon_path=icon.ICO,
+        )
 
     def open_settings():
         from timetracker import ui_settings

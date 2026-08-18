@@ -80,9 +80,11 @@ A thin strip parks in the bottom-right corner above the clock, showing the
 issue and the elapsed time. Hovering reveals pause and stop.
 
 Every hour it expands in place to ask whether that is still what you are
-doing. It asks; it never overrules. Ignore it and the timer keeps running, but
-the time is flagged and shows amber in the day window rather than being
-quietly billed.
+doing, alongside an actual Windows notification — banner, sound, a line in
+Action Center — since the strip alone is easy to miss from across the screen.
+It asks; it never overrules. Ignore it and the timer keeps running, but the
+time is flagged and shows amber in the day window rather than being quietly
+billed.
 
 Stopping adds the time to today and opens the day window, so stopping the
 timer is also how the day gets closed out. Nothing reaches Tempo until you
@@ -157,6 +159,7 @@ timetracker/
   icon.py      the window icon
   win.py       taskbar identity and dark title bar
   shortcut.py  the Start Menu shortcut install.py creates, so it can be pinned
+  notify.py    the Windows notification behind the hourly check-in
   session.py   which page is up, and what stopping a timer means
   ui_shell.py  one window, several pages
 assets/        icon at every size Windows asks for
