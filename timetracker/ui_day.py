@@ -34,6 +34,7 @@ class DayCallbacks:
     on_lookup: callable = lambda key: None
     on_close: callable = lambda: None
     on_show_week: callable = lambda: None
+    on_open_settings: callable = lambda: None
     # Asked every second for the timer's current state, so pausing or stopping
     # from the strip is reflected here instead of the window counting on
     # against a timer that is no longer running.
@@ -98,6 +99,18 @@ class DayWindow:
         self.week_button.bind("<Button-1>",
                               lambda _e: self.callbacks.on_show_week())
         _hover(self.week_button, self.theme["surface"],
+               self.theme["surface_hi"])
+
+        self.settings_button = tk.Label(
+            self.header, text="⚙", bg=self.theme["surface"],
+            fg=self.theme["text"], font=self.theme.font("small"),
+            padx=self.theme.space["sm"], pady=self.theme.space["xs"],
+            cursor="hand2",
+        )
+        self.settings_button.pack(side="left", padx=(self.theme.space["sm"], 0))
+        self.settings_button.bind(
+            "<Button-1>", lambda _e: self.callbacks.on_open_settings())
+        _hover(self.settings_button, self.theme["surface"],
                self.theme["surface_hi"])
 
         self.total_label = tk.Label(

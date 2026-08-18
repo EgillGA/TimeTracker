@@ -95,7 +95,7 @@ def open_week():
 
 
 def _day_page(frame, day, service, theme, on_start_timer, on_running,
-              on_show_week, on_close):
+              on_show_week, on_open_settings, on_close):
     """The day page, for any date. The same page serves today and last
     Wednesday — the only difference is which record it loads."""
     from timetracker.ui_day import DayCallbacks, DayWindow
@@ -112,6 +112,7 @@ def _day_page(frame, day, service, theme, on_start_timer, on_running,
             # showing a live figure would be a lie.
             on_running=on_running if day == date.today() else (lambda: None),
             on_show_week=on_show_week,
+            on_open_settings=on_open_settings,
             on_close=on_close,
         ),
         theme,
@@ -158,6 +159,11 @@ def _run_session(open_with_timer=None, start_on_week=False):
     store = Store()
     window = tk.Tk()
 
+    def open_settings():
+        from timetracker import ui_settings
+        current = load_config(ROOT).prompt_time
+        ui_settings.show(window, ROOT, current, theme=theme)
+
     def begin(issue):
         """Put the strip on screen, leaving the page where it is."""
         return session.start_timer(lambda parent: TimerStrip(
@@ -179,6 +185,7 @@ def _run_session(open_with_timer=None, start_on_week=False):
             # re-reading the file it only writes every 30 seconds.
             on_running=session.running_state,
             on_show_week=lambda: session.show_week(),
+            on_open_settings=open_settings,
             on_close=lambda: session.close_window(),
         ),
         build_week=lambda frame: _week_page(

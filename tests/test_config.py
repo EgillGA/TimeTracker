@@ -9,7 +9,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from timetracker.config import MissingCredentials, load_config, load_credentials
+from timetracker.config import (
+    MissingCredentials,
+    load_config,
+    load_credentials,
+    write_schedule,
+)
 
 CONFIG = """
 [jira]
@@ -92,6 +97,45 @@ class LoadingSettings(ConfigTestCase):
         # A stray character in a hand-edited file must not stop the prompt.
         self.write("config.toml", "this is not [valid toml")
         self.assertEqual(load_config(self.root).hours_per_day, 8.0)
+
+
+class WritingTheScheduleTime(ConfigTestCase):
+    def test_replaces_an_existing_prompt_time(self):
+        self.write("config.toml", CONFIG)
+        write_schedule(self.root, "09:00")
+        self.assertEqual(load_config(self.root).prompt_time, "09:00")
+
+    def test_leaves_everything_else_untouched(self):
+        self.write("config.toml", CONFIG)
+        write_schedule(self.root, "09:00")
+        config = load_config(self.root)
+
+        self.assertEqual(config.hours_per_day, 7.5)
+        self.assertEqual(config.theme, "light")
+        self.assertEqual(config.jql["assigned"], "assignee = currentUser()")
+
+    def test_a_comment_above_the_key_survives(self):
+        self.write("config.toml",
+                   '[schedule]\n# when it opens itself\nprompt_time = "15:30"\n')
+        write_schedule(self.root, "09:00")
+        self.assertIn("# when it opens itself", (self.root / "config.toml").read_text())
+
+    def test_adds_the_key_when_the_schedule_table_has_none(self):
+        self.write("config.toml", '[schedule]\nhours_per_day = 8.0\n')
+        write_schedule(self.root, "09:00")
+        self.assertEqual(load_config(self.root).prompt_time, "09:00")
+
+    def test_adds_a_schedule_table_when_there_is_none_at_all(self):
+        self.write("config.toml", '[jira]\nsite = "https://apt-oz.atlassian.net"\n')
+        write_schedule(self.root, "09:00")
+        config = load_config(self.root)
+
+        self.assertEqual(config.prompt_time, "09:00")
+        self.assertEqual(config.jira_site, "https://apt-oz.atlassian.net")
+
+    def test_creates_the_file_when_it_does_not_exist(self):
+        write_schedule(self.root, "09:00")
+        self.assertEqual(load_config(self.root).prompt_time, "09:00")
 
 
 class LoadingCredentials(ConfigTestCase):

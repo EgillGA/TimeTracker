@@ -6,6 +6,7 @@ nothing can be read or written without them, so they raise, with an
 explanation aimed at someone who has not thought about this tool in months.
 """
 
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -113,6 +114,44 @@ def load_config(root=None):
         internal_project=internal_project,
         jql=jql,
     )
+
+
+def write_schedule(root, prompt_time):
+    """Persist a new prompt_time into config.toml, in place.
+
+    Edited line by line rather than re-serialised from load_config's parsed
+    result, so the comments and layout the user sees on opening the file
+    survive a change made from inside the app.
+    """
+    path = Path(root) / "config.toml" if root else Path("config.toml")
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True) if path.exists() else []
+
+    section_at = None
+    key_at = None
+    in_schedule = False
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            in_schedule = stripped.lower() == "[schedule]"
+            if in_schedule:
+                section_at = index
+            continue
+        if in_schedule and re.match(r"^\s*prompt_time\s*=", line):
+            key_at = index
+
+    new_line = f'prompt_time   = "{prompt_time}"\n'
+
+    if key_at is not None:
+        lines[key_at] = new_line
+    elif section_at is not None:
+        lines.insert(section_at + 1, new_line)
+    else:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append("\n[schedule]\n")
+        lines.append(new_line)
+
+    path.write_text("".join(lines), encoding="utf-8")
 
 
 def load_credentials(root=None):
