@@ -54,16 +54,21 @@ def decide(now, record, config):
     if now.isoweekday() >= SATURDAY:
         return NOTHING
 
-    prompt = parse_clock(config.prompt_time, DEFAULT_PROMPT_SECONDS)
+    # The week view is about the other four days, so it is still worth
+    # showing on a Friday whose own hours are already in. It can also want
+    # its own time — Friday afternoons empty out earlier than the rest of
+    # the week — so it is checked against week_prompt_time, not prompt_time.
+    is_week_day = now.isoweekday() == WEEKDAY_NUMBERS.get(
+        str(config.week_view_day).lower()
+    )
+    prompt_time = config.week_prompt_time if is_week_day else config.prompt_time
+    prompt = parse_clock(prompt_time, DEFAULT_PROMPT_SECONDS)
+
     seconds_into_day = now.hour * 3600 + now.minute * 60 + now.second
     if seconds_into_day < prompt:
         return NOTHING
 
-    # The week view is about the other four days, so it is still worth
-    # showing on a Friday whose own hours are already in.
-    if now.isoweekday() == WEEKDAY_NUMBERS.get(
-        str(config.week_view_day).lower()
-    ):
+    if is_week_day:
         return WEEK
 
     return NOTHING if is_settled(record) else DAY

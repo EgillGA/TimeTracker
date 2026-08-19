@@ -71,6 +71,22 @@ class ApplyingANewTime(unittest.TestCase):
 
         self.assertEqual(load_config(self.root).prompt_time, "09:00")
 
+    def test_the_week_day_s_own_time_is_written_too_when_given(self):
+        with patch("timetracker.ui_settings.subprocess.run") as run:
+            run.return_value.returncode = 1
+            apply(self.root, "15:30", week_prompt_time="13:30")
+
+        config = load_config(self.root)
+        self.assertEqual(config.prompt_time, "15:30")
+        self.assertEqual(config.week_prompt_time, "13:30")
+
+    def test_omitting_the_week_day_s_time_leaves_it_following_prompt_time(self):
+        with patch("timetracker.ui_settings.subprocess.run") as run:
+            run.return_value.returncode = 1
+            apply(self.root, "09:00")
+
+        self.assertEqual(load_config(self.root).week_prompt_time, "09:00")
+
 
 if __name__ == "__main__":
     unittest.main()

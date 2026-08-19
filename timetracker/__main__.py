@@ -63,14 +63,43 @@ def run_auto():
         return 0
 
     # A window is already open — probably the one you are typing into. The
-    # logon trigger must not stack a second copy of the day on top of it.
+    # logon trigger must not stack a second copy of the day on top of it, but
+    # the notification should still land: an open window sitting behind
+    # something else is exactly the case that gets missed silently.
     with SingleInstance() as lock:
         if not lock.acquired:
+            _announce_only(action == launch.WEEK)
             return 0
         # Fridays open on the week: today's hours matter less than the four
         # days behind it that can still be fixed.
         return (open_week(announce=True) if action == launch.WEEK
                 else open_day(announce=True))
+
+
+def _open_message(is_week):
+    return ("This week's hours are worth a look" if is_week
+            else "Today's hours are ready to log")
+
+
+def _announce_only(is_week):
+    """Notify without opening a window — one is already up.
+
+    Shell_NotifyIcon needs a real window handle to anchor the toast to;
+    nothing on this path creates one otherwise, so a small hidden one is
+    made just to hold it and then torn down.
+    """
+    from timetracker import icon, notify
+
+    root = tk.Tk()
+    root.withdraw()
+    hold_ms = 6000
+
+    if notify.toast(root, "TimeTracker", _open_message(is_week),
+                     icon_path=icon.ICO, hold_ms=hold_ms):
+        root.after(hold_ms + 250, root.destroy)
+        root.mainloop()
+    else:
+        root.destroy()
 
 
 def _service_or_setup(theme):
@@ -167,17 +196,17 @@ def _run_session(open_with_timer=None, start_on_week=False, announce=False):
 
     if announce:
         from timetracker import icon, notify
-        notify.toast(
-            window, "TimeTracker",
-            "This week's hours are worth a look" if start_on_week
-            else "Today's hours are ready to log",
-            icon_path=icon.ICO,
-        )
+        notify.toast(window, "TimeTracker", _open_message(start_on_week),
+                     icon_path=icon.ICO)
 
     def open_settings():
         from timetracker import ui_settings
-        current = load_config(ROOT).prompt_time
-        ui_settings.show(window, ROOT, current, theme=theme)
+        current = load_config(ROOT)
+        ui_settings.show(
+            window, ROOT, current.prompt_time,
+            week_prompt_time=current.week_prompt_time,
+            week_view_day=current.week_view_day, theme=theme,
+        )
 
     def begin(issue):
         """Put the strip on screen, leaving the page where it is."""

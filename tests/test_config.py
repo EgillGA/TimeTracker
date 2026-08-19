@@ -72,6 +72,18 @@ class LoadingSettings(ConfigTestCase):
         self.assertEqual(config.prompt_time, "15:30")
         self.assertEqual(config.theme, "dark")
 
+    def test_the_week_day_s_time_follows_prompt_time_when_unset(self):
+        self.write("config.toml", '[schedule]\nprompt_time = "16:00"\n')
+        self.assertEqual(load_config(self.root).week_prompt_time, "16:00")
+
+    def test_the_week_day_s_time_can_be_set_on_its_own(self):
+        self.write("config.toml",
+                   '[schedule]\nprompt_time = "15:30"\nweek_prompt_time = "13:30"\n')
+        config = load_config(self.root)
+
+        self.assertEqual(config.prompt_time, "15:30")
+        self.assertEqual(config.week_prompt_time, "13:30")
+
     def test_a_partial_file_keeps_defaults_for_what_it_omits(self):
         self.write("config.toml", '[schedule]\nhours_per_day = 6.0\n')
         config = load_config(self.root)
@@ -136,6 +148,29 @@ class WritingTheScheduleTime(ConfigTestCase):
     def test_creates_the_file_when_it_does_not_exist(self):
         write_schedule(self.root, "09:00")
         self.assertEqual(load_config(self.root).prompt_time, "09:00")
+
+    def test_the_week_day_s_own_time_is_left_alone_when_not_given(self):
+        self.write("config.toml", CONFIG)
+        write_schedule(self.root, "09:00")
+        # Unset in the file, so it still follows prompt_time.
+        self.assertEqual(load_config(self.root).week_prompt_time, "09:00")
+
+    def test_the_week_day_s_own_time_can_be_set_separately(self):
+        self.write("config.toml", CONFIG)
+        write_schedule(self.root, "15:30", week_prompt_time="13:30")
+        config = load_config(self.root)
+
+        self.assertEqual(config.prompt_time, "15:30")
+        self.assertEqual(config.week_prompt_time, "13:30")
+
+    def test_setting_the_week_day_s_time_does_not_disturb_prompt_time(self):
+        self.write("config.toml", CONFIG)
+        write_schedule(self.root, "16:00", week_prompt_time="13:30")
+        write_schedule(self.root, "16:00", week_prompt_time="14:00")
+        config = load_config(self.root)
+
+        self.assertEqual(config.prompt_time, "16:00")
+        self.assertEqual(config.week_prompt_time, "14:00")
 
 
 class LoadingCredentials(ConfigTestCase):

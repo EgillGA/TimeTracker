@@ -6,9 +6,10 @@ site  = "https://apt-oz.atlassian.net"
 email = "egill@aptoz.is"
 
 [schedule]
-hours_per_day = 8.0
-prompt_time   = "15:30"
-week_view_day = "friday"
+hours_per_day    = 8.0
+prompt_time      = "15:30"
+week_prompt_time = "13:30"
+week_view_day    = "friday"
 
 # Worklogs are laid end to end from here, so a submitted day reads
 # 08:00-12:00, 12:00-16:00 rather than everything stacked on midnight.

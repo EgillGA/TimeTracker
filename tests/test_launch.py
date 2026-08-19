@@ -63,6 +63,26 @@ class AtThePromptTime(unittest.TestCase):
         self.assertEqual(decide(at_four, record(), config(prompt_time="16:00")),
                          DAY)
 
+    def test_the_week_day_can_have_its_own_earlier_time(self):
+        # Friday afternoons empty out sooner than the rest of the week.
+        friday_1330 = datetime(2026, 8, 21, 13, 30)
+        self.assertEqual(
+            decide(friday_1330, record(), config(week_prompt_time="13:30")), WEEK
+        )
+
+    def test_the_week_day_s_own_time_does_not_move_other_days(self):
+        # Only Friday gets the earlier time; Monday still waits for 15:30.
+        monday_1330 = datetime(2026, 8, 17, 13, 30)
+        self.assertEqual(
+            decide(monday_1330, record(), config(week_prompt_time="13:30")), NOTHING
+        )
+
+    def test_before_the_week_day_s_own_time_is_still_too_early(self):
+        friday_1329 = datetime(2026, 8, 21, 13, 29)
+        self.assertEqual(
+            decide(friday_1329, record(), config(week_prompt_time="13:30")), NOTHING
+        )
+
 
 class TooEarly(unittest.TestCase):
     def test_nothing_happens_before_the_prompt_time(self):

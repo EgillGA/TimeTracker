@@ -19,6 +19,9 @@ DEFAULTS = {
     "jira_email": "",
     "hours_per_day": 8.0,
     "prompt_time": "15:30",
+    # Falls back to prompt_time itself when unset, so a week_view_day with no
+    # time of its own configured behaves exactly as it always has.
+    "week_prompt_time": "15:30",
     "week_view_day": "friday",
     "day_starts_at": "08:00",
     "suggestion_count": 5,
@@ -50,6 +53,7 @@ class Config:
     # builds a Config, which is most of the test suite.
     suggestion_count: int = DEFAULTS["suggestion_count"]
     suggestion_days: int = DEFAULTS["suggestion_days"]
+    week_prompt_time: str = DEFAULTS["week_prompt_time"]
     jql: dict = field(default_factory=dict)
 
 
@@ -98,6 +102,13 @@ def load_config(root=None):
         jira_email=jira.get("email", DEFAULTS["jira_email"]),
         hours_per_day=float(schedule.get("hours_per_day", DEFAULTS["hours_per_day"])),
         prompt_time=schedule.get("prompt_time", DEFAULTS["prompt_time"]),
+        # Absent week_prompt_time means "same as prompt_time" — not a
+        # separately hardcoded default, so changing prompt_time alone still
+        # moves the week day's time along with it, as it always did.
+        week_prompt_time=schedule.get(
+            "week_prompt_time",
+            schedule.get("prompt_time", DEFAULTS["prompt_time"]),
+        ),
         week_view_day=schedule.get("week_view_day", DEFAULTS["week_view_day"]),
         day_starts_at=schedule.get("day_starts_at", DEFAULTS["day_starts_at"]),
         suggestion_count=int(
@@ -116,16 +127,9 @@ def load_config(root=None):
     )
 
 
-def write_schedule(root, prompt_time):
-    """Persist a new prompt_time into config.toml, in place.
-
-    Edited line by line rather than re-serialised from load_config's parsed
-    result, so the comments and layout the user sees on opening the file
-    survive a change made from inside the app.
-    """
-    path = Path(root) / "config.toml" if root else Path("config.toml")
-    lines = path.read_text(encoding="utf-8").splitlines(keepends=True) if path.exists() else []
-
+def _set_schedule_key(lines, key, value):
+    """Set one key's value inside [schedule], adding the key or the whole
+    table if either is missing. Returns the edited lines."""
     section_at = None
     key_at = None
     in_schedule = False
@@ -136,10 +140,10 @@ def write_schedule(root, prompt_time):
             if in_schedule:
                 section_at = index
             continue
-        if in_schedule and re.match(r"^\s*prompt_time\s*=", line):
+        if in_schedule and re.match(rf"^\s*{re.escape(key)}\s*=", line):
             key_at = index
 
-    new_line = f'prompt_time   = "{prompt_time}"\n'
+    new_line = f'{key}   = "{value}"\n'
 
     if key_at is not None:
         lines[key_at] = new_line
@@ -150,6 +154,24 @@ def write_schedule(root, prompt_time):
             lines[-1] += "\n"
         lines.append("\n[schedule]\n")
         lines.append(new_line)
+
+    return lines
+
+
+def write_schedule(root, prompt_time, week_prompt_time=None):
+    """Persist prompt_time — and week_prompt_time, if given — into
+    config.toml, in place.
+
+    Edited line by line rather than re-serialised from load_config's parsed
+    result, so the comments and layout the user sees on opening the file
+    survive a change made from inside the app.
+    """
+    path = Path(root) / "config.toml" if root else Path("config.toml")
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True) if path.exists() else []
+
+    lines = _set_schedule_key(lines, "prompt_time", prompt_time)
+    if week_prompt_time is not None:
+        lines = _set_schedule_key(lines, "week_prompt_time", week_prompt_time)
 
     path.write_text("".join(lines), encoding="utf-8")
 

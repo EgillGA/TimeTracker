@@ -38,15 +38,15 @@ def _task_installed():
     return result.returncode == 0
 
 
-def apply(root, prompt_time):
-    """Write the new time and, if the scheduled task already exists, bring
-    its trigger into line with it.
+def apply(root, prompt_time, week_prompt_time=None):
+    """Write the new time (and, if given, the week day's own time) and, if
+    the scheduled task already exists, bring its triggers into line with it.
 
     Silent either way: a settings dialog is not the place to explain
     schtasks failures, and the worst case — the task firing at the old time
     until the next successful install — is not a broken program.
     """
-    config_module.write_schedule(root, prompt_time)
+    config_module.write_schedule(root, prompt_time, week_prompt_time)
 
     if not _task_installed():
         return
@@ -61,10 +61,13 @@ def apply(root, prompt_time):
         pass
 
 
-def show(parent, root, prompt_time, theme=None, on_saved=None):
+def show(parent, root, prompt_time, week_prompt_time=None,
+         week_view_day="friday", theme=None, on_saved=None):
     """A small modal over `parent` to change when TimeTracker opens itself."""
     theme = theme or Theme()
-    on_saved = on_saved or (lambda new_time: None)
+    on_saved = on_saved or (lambda new_time, new_week_time: None)
+    week_prompt_time = week_prompt_time or prompt_time
+    week_label = str(week_view_day).strip().title() or "Friday"
 
     dialog = tk.Toplevel(parent)
     dialog.title("Settings")
@@ -73,7 +76,7 @@ def show(parent, root, prompt_time, theme=None, on_saved=None):
     win.dark_titlebar(dialog, dark=theme.name == "dark")
     dialog.transient(parent)
     dialog.resizable(False, False)
-    dialog.geometry("360x200")
+    dialog.geometry("360x260")
 
     pad = theme.space["lg"]
 
@@ -81,24 +84,13 @@ def show(parent, root, prompt_time, theme=None, on_saved=None):
              font=theme.font("heading"), anchor="w").pack(
         fill="x", padx=pad, pady=(pad, theme.space["sm"]))
 
-    tk.Label(dialog, text="Open on its own at", bg=theme["bg"],
-             fg=theme["text_muted"], font=theme.font("body"),
-             anchor="w").pack(fill="x", padx=pad)
-
-    field_row = tk.Frame(dialog, bg=theme["bg"])
-    field_row.pack(fill="x", padx=pad, pady=theme.space["sm"])
-
-    entry = tk.Entry(
-        field_row, bg=theme["field_bg"], fg=theme["text"],
-        insertbackground=theme["text"], font=theme.font("number"),
-        relief="flat", justify="left", highlightthickness=1,
-        highlightbackground=theme["border"], highlightcolor=theme["accent"],
-    )
-    entry.insert(0, prompt_time)
-    entry.pack(side="left", ipady=4, ipadx=6)
+    entry = _time_field(dialog, "Open on its own at", prompt_time, theme, pad)
+    week_entry = _time_field(
+        dialog, f"Except on {week_label}s, at", week_prompt_time, theme, pad)
 
     error = tk.Label(dialog, text="", bg=theme["bg"], fg=theme["warn"],
-                      font=theme.font("small"), anchor="w")
+                      font=theme.font("small"), anchor="w",
+                      wraplength=360 - 2 * pad, justify="left")
     error.pack(fill="x", padx=pad)
 
     buttons = tk.Frame(dialog, bg=theme["bg"])
@@ -109,11 +101,12 @@ def show(parent, root, prompt_time, theme=None, on_saved=None):
 
     def save():
         text = entry.get().strip()
-        if not _valid(text):
+        week_text = week_entry.get().strip()
+        if not _valid(text) or not _valid(week_text):
             error.configure(text='Use 24-hour HH:MM, e.g. "15:30".')
             return
-        apply(root, text)
-        on_saved(text)
+        apply(root, text, week_text)
+        on_saved(text, week_text)
         dialog.destroy()
 
     _button(buttons, "Cancel", cancel, theme, primary=False).pack(side="right")
@@ -127,6 +120,24 @@ def show(parent, root, prompt_time, theme=None, on_saved=None):
 
     dialog.grab_set()
     dialog.wait_window()
+
+
+def _time_field(dialog, label, value, theme, pad):
+    tk.Label(dialog, text=label, bg=theme["bg"], fg=theme["text_muted"],
+             font=theme.font("body"), anchor="w").pack(fill="x", padx=pad)
+
+    row = tk.Frame(dialog, bg=theme["bg"])
+    row.pack(fill="x", padx=pad, pady=(0, theme.space["sm"]))
+
+    entry = tk.Entry(
+        row, bg=theme["field_bg"], fg=theme["text"],
+        insertbackground=theme["text"], font=theme.font("number"),
+        relief="flat", justify="left", highlightthickness=1,
+        highlightbackground=theme["border"], highlightcolor=theme["accent"],
+    )
+    entry.insert(0, value)
+    entry.pack(side="left", ipady=4, ipadx=6)
+    return entry
 
 
 def _button(parent, text, command, theme, primary):

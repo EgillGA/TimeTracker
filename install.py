@@ -7,11 +7,12 @@
 Runs as you, needs no administrator rights, and touches nothing outside your
 own Task Scheduler. Remove it with `py uninstall.py`.
 
-One task with two triggers rather than two tasks: half past three on weekdays,
-and again two minutes after logon. Both run the same command, and the program
+One task with several triggers rather than several tasks: half past three on
+weekdays, its own time on the configured week day if one is set, and again
+two minutes after logon. All of them run the same command, and the program
 decides whether to show anything — so the rule about when to appear lives in
-tested code rather than being split across two task definitions that could
-drift apart.
+tested code rather than being split across task definitions that could drift
+apart.
 """
 
 import os
@@ -36,6 +37,19 @@ START_MENU_SHORTCUT = (
     / "Start Menu" / "Programs" / "TimeTracker.lnk"
 )
 
+WEEKDAY_TAGS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+
+CALENDAR_TRIGGER = """    <CalendarTrigger>
+      <StartBoundary>2026-01-05T{time}</StartBoundary>
+      <Enabled>true</Enabled>
+      <ScheduleByWeek>
+        <DaysOfWeek>
+          {days}
+        </DaysOfWeek>
+        <WeeksInterval>1</WeeksInterval>
+      </ScheduleByWeek>
+    </CalendarTrigger>"""
+
 TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -43,16 +57,7 @@ TASK_XML = """<?xml version="1.0" encoding="UTF-16"?>
     <URI>\\{task_name}</URI>
   </RegistrationInfo>
   <Triggers>
-    <CalendarTrigger>
-      <StartBoundary>2026-01-05T{prompt_time}</StartBoundary>
-      <Enabled>true</Enabled>
-      <ScheduleByWeek>
-        <DaysOfWeek>
-          <Monday /><Tuesday /><Wednesday /><Thursday /><Friday />
-        </DaysOfWeek>
-        <WeeksInterval>1</WeeksInterval>
-      </ScheduleByWeek>
-    </CalendarTrigger>
+{calendar_triggers}
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>{user}</UserId>
@@ -96,13 +101,48 @@ def current_user():
     return f"{domain}\\{name}" if domain else name
 
 
+def _calendar_triggers(config):
+    """One trigger for the ordinary weekdays, and — only when the configured
+    week day has a time of its own — a second one just for it.
+
+    Two triggers rather than one covering all five days at whichever is
+    earlier: a day that isn't the week day must still wait for its own
+    prompt_time, not fire early because the week day's happens to be sooner.
+    """
+    week_day = str(config.week_view_day).strip().title()
+    if week_day not in WEEKDAY_TAGS:
+        week_day = None
+
+    regular_days = [day for day in WEEKDAY_TAGS if day != week_day]
+    prompt_seconds = parse_clock(config.prompt_time, 15 * 3600 + 30 * 60)
+    week_seconds = parse_clock(config.week_prompt_time, prompt_seconds)
+
+    triggers = [CALENDAR_TRIGGER.format(
+        time=format_clock(prompt_seconds),
+        days="".join(f"<{day} />" for day in regular_days),
+    )]
+
+    if week_day and week_seconds != prompt_seconds:
+        triggers.append(CALENDAR_TRIGGER.format(
+            time=format_clock(week_seconds), days=f"<{week_day} />",
+        ))
+    elif week_day:
+        # Same time as every other day — one trigger covering all five,
+        # rather than two that happen to agree.
+        triggers[0] = CALENDAR_TRIGGER.format(
+            time=format_clock(prompt_seconds),
+            days="".join(f"<{day} />" for day in WEEKDAY_TAGS),
+        )
+
+    return "\n".join(triggers)
+
+
 def build_xml():
     config = load_config(ROOT)
-    prompt_seconds = parse_clock(config.prompt_time, 15 * 3600 + 30 * 60)
 
     return TASK_XML.format(
         task_name=TASK_NAME,
-        prompt_time=format_clock(prompt_seconds),
+        calendar_triggers=_calendar_triggers(config),
         user=current_user(),
         launcher=LAUNCHER,
         root=ROOT,
@@ -157,6 +197,8 @@ def install():
 
     config = load_config(ROOT)
     print(f"Installed. TimeTracker will open at {config.prompt_time} on weekdays,")
+    if config.week_prompt_time != config.prompt_time:
+        print(f"and at {config.week_prompt_time} on {config.week_view_day.title()}s instead,")
     print("and shortly after logon if the machine was off at the time.")
     print(f"\nIt stays quiet unless there is something to deal with.")
 

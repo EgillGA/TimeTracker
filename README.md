@@ -105,7 +105,16 @@ Creates one scheduled task, as you, with no administrator rights. It fires at
 15:30 on weekdays and again two minutes after logon, and each time the program
 decides for itself whether there is anything worth showing — so unlocking your
 laptop at ten in the morning costs nothing, while a day the machine was off at
-15:30 still gets its prompt.
+15:30 still gets its prompt. Along with the window, a Windows notification
+fires too — whether that means a fresh window opening or landing on one you
+already had open.
+
+The week day (Friday by default) can have its own time instead of 15:30, set
+separately as `week_prompt_time` — useful if, say, Friday afternoons empty out
+earlier than the rest of the week. Both times can be changed from inside the
+app: the ⚙ next to Week opens a small dialog for exactly this, and saving it
+re-installs the scheduled task so the change actually takes effect rather
+than only updating config.toml.
 
 It stays silent when the day is settled: something reached Tempo and nothing
 is still waiting. A part-submitted day is not settled, and does prompt.
